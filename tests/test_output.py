@@ -35,8 +35,8 @@ class TestFormatDot:
         graph = _build_graph()
         dot = format_dot(graph)
         assert 'style="filled,dashed"' in dot
-        assert "fillcolor=lightsalmon" in dot
-        assert "color=orangered" in dot
+        assert "fillcolor=mistyrose" in dot
+        assert "color=grey" in dot
 
     def test_unknown_node_style(self) -> None:
         graph = _build_graph()
@@ -54,6 +54,24 @@ class TestFormatDot:
 
         dot = format_dot(graph)
         assert "(alias: custom)" in dot
+
+    def test_default_spacing(self) -> None:
+        graph = _build_graph()
+        dot = format_dot(graph)
+        assert "ranksep=1.5;" in dot
+        assert "nodesep=0.6;" in dot
+
+    def test_custom_spacing(self) -> None:
+        graph = _build_graph()
+        dot = format_dot(graph, ranksep=2.5, nodesep=1.0)
+        assert "ranksep=2.5;" in dot
+        assert "nodesep=1.0;" in dot
+
+    def test_spacing_omitted_when_none(self) -> None:
+        graph = _build_graph()
+        dot = format_dot(graph, ranksep=None, nodesep=None)
+        assert "ranksep=" not in dot
+        assert "nodesep=" not in dot
 
     def test_edges_present(self) -> None:
         graph = _build_graph()

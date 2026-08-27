@@ -163,12 +163,16 @@ def format_json(
 def format_dot(
     graph: DependencyGraph,
     hide_libraries: bool = True,
+    ranksep: float | None = 1.5,
+    nodesep: float | None = 0.6,
 ) -> str:
     """Format graph as Graphviz DOT.
 
     Args:
         graph: The dependency graph.
         hide_libraries: If True, exclude library charts from output.
+        ranksep: Vertical space between ranks (layers). None to omit.
+        nodesep: Horizontal space between nodes in the same rank. None to omit.
 
     Returns:
         DOT string.
@@ -177,8 +181,12 @@ def format_dot(
         "digraph helm_deps {",
         "  rankdir=TB;",
         "  node [shape=box];",
-        "",
     ]
+    if ranksep is not None:
+        lines.append(f"  ranksep={ranksep};")
+    if nodesep is not None:
+        lines.append(f"  nodesep={nodesep};")
+    lines.append("")
 
     seen: set[str] = set()
 
@@ -202,9 +210,9 @@ def format_dot(
             style = "filled"
             border = "darkgreen"
         elif eff is False:
-            fill = "lightsalmon"
+            fill = "mistyrose"
             style = "filled,dashed"
-            border = "orangered"
+            border = "grey"
         else:
             fill = "lightgrey"
             style = "filled,dotted"

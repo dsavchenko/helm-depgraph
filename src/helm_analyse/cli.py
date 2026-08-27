@@ -34,6 +34,8 @@ def main() -> None:
     default=False,
     help="Use helm show instead of helm build",
 )
+@click.option("--ranksep", type=float, default=1.5, help="Vertical space between ranks (DOT)")
+@click.option("--nodesep", type=float, default=0.6, help="Horizontal space between nodes (DOT)")
 def build(
     chart_path: Path,
     values_file: Path | None,
@@ -42,6 +44,8 @@ def build(
     hide_libraries: bool,
     helm_bin: str,
     use_helm_show: bool,
+    ranksep: float,
+    nodesep: float,
 ) -> None:
     """Build dependency graph for a chart.
 
@@ -69,7 +73,9 @@ def build(
     elif output_format == "json":
         click.echo(format_json(graph, hide_libraries=hide_libraries))
     elif output_format == "dot":
-        click.echo(format_dot(graph, hide_libraries=hide_libraries))
+        click.echo(
+            format_dot(graph, hide_libraries=hide_libraries, ranksep=ranksep, nodesep=nodesep)
+        )
 
 
 if __name__ == "__main__":
