@@ -24,7 +24,6 @@ class ChartNode:
     conditions: list[str] = field(default_factory=list)
     tags: list[str] = field(default_factory=list)
     enabled: bool | None = None
-    parent: str | None = None
     children: dict[str, ChartNode] = field(default_factory=dict)
 
     @property
@@ -71,7 +70,6 @@ def _parse_chart_yaml(path: Path) -> dict[str, Any]:
 
 def _build_node_from_chart(
     chart_data: dict[str, Any],
-    parent: str | None = None,
     repo_url: str | None = None,
 ) -> ChartNode:
     """Create a ChartNode from parsed Chart.yaml data."""
@@ -80,7 +78,6 @@ def _build_node_from_chart(
         version=chart_data.get("version", "0.0.0"),
         repository=repo_url or chart_data.get("repository"),
         chart_type=chart_data.get("type"),
-        parent=parent,
     )
 
 
@@ -155,7 +152,7 @@ def _resolve_children(chart_path: Path, node: ChartNode, chart_yaml: dict[str, A
             continue
 
         dep_data = _parse_chart_yaml(dep_chart_yaml_path)
-        child = _build_node_from_chart(dep_data, parent=node.key)
+        child = _build_node_from_chart(dep_data)
 
         # Apply conditions/tags/alias from parent's dependency definition
         dep_def = deps_by_name.get(child.name, {})
@@ -204,7 +201,7 @@ def _resolve_children_from_helm_show(
         try:
             dep_output = _run_helm(["show", "chart", "--json", dep_ref], helm_bin=helm_bin)
             dep_data: dict[str, Any] = yaml.safe_load(dep_output)
-            child = _build_node_from_chart(dep_data, parent=node.key)
+            child = _build_node_from_chart(dep_data)
             child.conditions = dep.conditions
             child.tags = dep.tags
             child.alias = dep.alias
