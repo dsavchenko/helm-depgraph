@@ -2,7 +2,12 @@
 
 from pathlib import Path
 
-from helm_analyse.conditions import _resolve_path, effective_enabled, evaluate_conditions
+from helm_analyse.conditions import (
+    _propagate_disabled,
+    _resolve_path,
+    effective_enabled,
+    evaluate_conditions,
+)
 from helm_analyse.graph import ChartNode, DependencyGraph
 
 
@@ -193,6 +198,44 @@ class TestPropagateDisabled:
         assert graph.nodes["root/b"].enabled is False
         assert graph.nodes["root/a/c"].enabled is False
         assert graph.nodes["root/b/c"].enabled is False
+
+    def test_keeps_via_path_with_enabled_node(self) -> None:
+        """Child stays enabled when an alternative path has an enabled node."""
+        root = ChartNode(name="root", version="1.0.0", enabled=True)
+        a = ChartNode(name="a", version="1.0.0", enabled=False)
+        b = ChartNode(name="b", version="1.0.0", enabled=True)
+        shared_a = ChartNode(name="shared", version="1.0.0", enabled=False)
+        shared_b = ChartNode(name="shared", version="1.0.0", enabled=True)
+        a.children["shared"] = shared_a
+        b.children["shared"] = shared_b
+        root.children["a"] = a
+        root.children["b"] = b
+        graph = DependencyGraph(root=root)
+        graph.flatten()
+
+        _propagate_disabled(graph)
+        assert graph.nodes["root/a/shared"].enabled is False
+        assert graph.nodes["root/b/shared"].enabled is True
+        assert effective_enabled(graph, "shared") is True
+
+    def test_disables_via_path_with_disabled_node(self) -> None:
+        """Child is disabled when the alternative path node itself is disabled."""
+        root = ChartNode(name="root", version="1.0.0", enabled=True)
+        a = ChartNode(name="a", version="1.0.0", enabled=True)
+        b = ChartNode(name="b", version="1.0.0", enabled=False)
+        shared_a = ChartNode(name="shared", version="1.0.0", enabled=False)
+        shared_b = ChartNode(name="shared", version="1.0.0", enabled=True)
+        a.children["shared"] = shared_a
+        b.children["shared"] = shared_b
+        root.children["a"] = a
+        root.children["b"] = b
+        graph = DependencyGraph(root=root)
+        graph.flatten()
+
+        _propagate_disabled(graph)
+        assert graph.nodes["root/a/shared"].enabled is False
+        assert graph.nodes["root/b/shared"].enabled is False
+        assert effective_enabled(graph, "shared") is False
 
     def test_intermediate_disabled_preserves_sibling_path(self) -> None:
         """root -> A(disabled) -> B -> C, root -> D(enabled) -> C => C enabled."""
@@ -442,6 +485,37 @@ class TestEffectiveEnabled:
         root.children["b"] = b
         graph = DependencyGraph(root=root)
         graph.flatten()
+        assert effective_enabled(graph, "shared") is False
+
+    def test_diamond_child_disabled_when_enabled_path_condition_false(self) -> None:
+        """Enabled parent has child condition false; disabled parent has it true.
+
+        The child must end up disabled because neither path is active: the
+        enabled parent's path does not enable it, and the disabled parent's
+        path is invalid. (Regression: previously the child wrongly stayed
+        enabled via the disabled parent's path.)
+        """
+        root = ChartNode(name="root", version="1.0.0")
+        a = ChartNode(name="a", version="1.0.0", conditions=["a.enabled"])
+        b = ChartNode(name="b", version="1.0.0", conditions=["b.enabled"])
+        shared_a = ChartNode(name="shared", version="1.0.0", conditions=["shared.enabled"])
+        shared_b = ChartNode(name="shared", version="1.0.0", conditions=["shared.enabled"])
+        a.children["shared"] = shared_a
+        b.children["shared"] = shared_b
+        root.children["a"] = a
+        root.children["b"] = b
+        graph = DependencyGraph(root=root)
+        graph.flatten()
+
+        values = {
+            "a": {"enabled": True, "shared": {"enabled": False}},
+            "b": {"enabled": False, "shared": {"enabled": True}},
+        }
+        evaluate_conditions(graph, values)
+
+        assert graph.nodes["root/a/shared"].enabled is False
+        # Regression: previously this stayed True (wrongly shown as enabled)
+        assert graph.nodes["root/b/shared"].enabled is False
         assert effective_enabled(graph, "shared") is False
 
     def test_not_found_returns_none(self) -> None:

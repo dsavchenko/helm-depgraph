@@ -92,9 +92,15 @@ def _propagate_disabled(graph: DependencyGraph) -> None:
 
             # Check if same chart appears on another fully-enabled path
             other_paths = [p for p in chart_paths[desc_node.key] if p != desc_path]
-            has_enabled_path = any(_all_ancestors_enabled(graph, p) for p in other_paths)
+            has_enabled_path = any(_is_path_enabled(graph, p) for p in other_paths)
             if not has_enabled_path:
                 desc_node.enabled = False
+
+
+def _is_path_enabled(graph: DependencyGraph, path: str) -> bool:
+    """True if the node at path is enabled and every ancestor is enabled."""
+    node = graph.nodes.get(path)
+    return node is not None and node.enabled is True and _all_ancestors_enabled(graph, path)
 
 
 def _all_ancestors_enabled(graph: DependencyGraph, path: str) -> bool:
