@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -19,6 +20,7 @@ class ChartNode:
     version: str
     repository: str | None = None
     alias: str | None = None
+    chart_type: str | None = None
     conditions: list[str] = field(default_factory=list)
     tags: list[str] = field(default_factory=list)
     enabled: bool | None = None
@@ -77,6 +79,7 @@ def _build_node_from_chart(
         name=chart_data["name"],
         version=chart_data.get("version", "0.0.0"),
         repository=repo_url or chart_data.get("repository"),
+        chart_type=chart_data.get("type"),
         parent=parent,
     )
 
@@ -92,6 +95,7 @@ def _parse_dependency(dep: dict[str, Any]) -> ChartNode:
         version=dep.get("version", "*"),
         repository=dep.get("repository"),
         alias=dep.get("alias"),
+        chart_type=dep.get("type"),
         conditions=conditions,
         tags=dep.get("tags", []),
     )
@@ -209,3 +213,67 @@ def _resolve_children_from_helm_show(
             _resolve_children_from_helm_show(dep_ref, child, helm_bin)
         except subprocess.CalledProcessError:
             continue
+
+
+# ---------------------------------------------------------------------------
+# Computed values via `helm install --dry-run --debug`
+# ---------------------------------------------------------------------------
+
+_COMPUTED_VALUES_RE = re.compile(
+    r"^COMPUTED VALUES:\s*\n(.*?)(?=^HOOKS:|^MANIFEST:|\Z)",
+    re.MULTILINE | re.DOTALL,
+)
+
+
+def _parse_computed_values(helm_output: str) -> dict[str, Any]:
+    """Extract the COMPUTED VALUES YAML block from ``helm install --debug`` output.
+
+    Returns:
+        The parsed values dict, or an empty dict if the section is missing/empty.
+    """
+    match = _COMPUTED_VALUES_RE.search(helm_output)
+    if match is None:
+        return {}
+    raw = match.group(1).strip()
+    if not raw or raw in ("{}", "null"):
+        return {}
+    result = yaml.safe_load(raw)
+    if result is None or not isinstance(result, dict):
+        return {}
+    return cast(dict[str, Any], result)
+
+
+def get_computed_values(
+    chart_path: Path,
+    values_file: Path | None = None,
+    helm_bin: str = "helm",
+) -> dict[str, Any]:
+    """Run ``helm install --dry-run=client --debug`` and return the computed values.
+
+    The computed values are the fully merged values after Helm applies all
+    chart defaults, subchart defaults, and user overrides. This is the ground
+    truth for condition evaluation.
+
+    Raises:
+        subprocess.CalledProcessError: If the helm command fails.
+    """
+    args = [
+        "install",
+        "--dry-run=client",
+        "--debug",
+        "-n",
+        "default",
+        "helm-analyse-tmp",
+        str(chart_path),
+    ]
+    if values_file is not None:
+        args.extend(["-f", str(values_file)])
+
+    result = subprocess.run(
+        [helm_bin, *args],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    # COMPUTED VALUES is on stdout; debug logs are on stderr.
+    return _parse_computed_values(result.stdout)

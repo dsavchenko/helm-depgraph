@@ -1,0 +1,25 @@
+apiVersion: v2
+name: test-values-analysis
+version: 0.1.0
+description: Test chart for values-based condition evaluation
+dependencies:
+  - name: parent-a
+    version: "0.1.0"
+    repository: "file://charts/parent-a"
+    condition: parentA.enabled
+  - name: parent-b
+    version: "0.1.0"
+    repository: "file://charts/parent-b"
+    condition: parentB.enabled
+  - name: grandparent
+    version: "0.1.0"
+    repository: "file://charts/grandparent"
+    condition: grandparent.enabled
+  - name: level1
+    version: "0.1.0"
+    repository: "file://charts/level1"
+    condition: level1.enabled
+  - name: library-parent
+    version: "0.1.0"
+    repository: "file://charts/library-parent"
+    condition: libraryParent.enabled

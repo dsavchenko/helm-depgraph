@@ -1,0 +1,8 @@
+apiVersion: v2
+name: parent-a
+version: 0.1.0
+dependencies:
+  - name: shared
+    version: "0.1.0"
+    repository: "file://../shared"
+    condition: shared.enabled

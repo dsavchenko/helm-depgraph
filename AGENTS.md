@@ -48,4 +48,7 @@ helm-analyse analyse <chart_path> <manifest_path> [-f values.yaml] [--format tex
 - Tags evaluated as OR (any tag true = enabled); conditions override tags.
 - Resources matched to graph nodes via `helm.sh/chart` label or `# Source:` comments.
 - Chart `values.yaml` can contain Go templates — treat them as opaque strings unless rendering is required.
-- Expect charts from the CTA GitLab (`gitlab.cta-observatory.org`); some may reference internal OCI registries.
+- Merged values obtained via `helm install --dry-run=client --debug`; parse the `COMPUTED VALUES:` YAML block. Debug logs go to stderr, values to stdout.
+- Condition evaluation accepts a `computed_values` param (root-merged values from helm) used in place of raw root values; combined with the prefix rule (`prefix.condition_path`) it correctly resolves grandparent and diamond cases.
+- `get_computed_values(chart_path, values_file=None)` returns the parsed `COMPUTED VALUES:` block; CLI passes it to `evaluate_conditions()` via the `computed_values` keyword.
+- Edit `conditions.py`/`graph.py` in sync: `evaluate_conditions(graph, values, computed_values=None)` and `get_computed_values()` are design-coupled.

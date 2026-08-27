@@ -1,0 +1,8 @@
+apiVersion: v2
+name: level1
+version: 0.1.0
+dependencies:
+  - name: level2
+    version: "0.1.0"
+    repository: "file://../level2"
+    condition: level2.enabled

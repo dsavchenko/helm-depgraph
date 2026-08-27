@@ -9,7 +9,7 @@ import click
 import yaml
 
 from helm_analyse.conditions import evaluate_conditions
-from helm_analyse.graph import build_graph, build_graph_from_helm_show
+from helm_analyse.graph import build_graph, build_graph_from_helm_show, get_computed_values
 from helm_analyse.manifest import analyse_manifest
 from helm_analyse.output import (
     format_dot,
@@ -32,6 +32,7 @@ def main() -> None:
     "--format", "output_format", type=click.Choice(["text", "json", "dot"]), default="text"
 )
 @click.option("--duplicates/--no-duplicates", default=False, help="Show duplicate subcharts")
+@click.option("--hide-libraries/--show-libraries", default=True, help="Hide library charts")
 @click.option("--helm-bin", default="helm", help="Path to helm binary")
 @click.option(
     "--helm-show/--helm-build",
@@ -44,6 +45,7 @@ def build(
     values_file: Path | None,
     output_format: str,
     duplicates: bool,
+    hide_libraries: bool,
     helm_bin: str,
     use_helm_show: bool,
 ) -> None:
@@ -64,15 +66,16 @@ def build(
         with open(values_file) as f:
             values = yaml.safe_load(f) or {}
 
-    evaluate_conditions(graph, values)
+    computed = get_computed_values(chart_path, values_file, helm_bin=helm_bin)
+    evaluate_conditions(graph, values, computed_values=computed)
 
     # Output
     if output_format == "text":
-        click.echo(format_text(graph, show_duplicates=duplicates))
+        click.echo(format_text(graph, show_duplicates=duplicates, hide_libraries=hide_libraries))
     elif output_format == "json":
-        click.echo(format_json(graph))
+        click.echo(format_json(graph, hide_libraries=hide_libraries))
     elif output_format == "dot":
-        click.echo(format_dot(graph))
+        click.echo(format_dot(graph, hide_libraries=hide_libraries))
 
 
 @main.command()
@@ -83,6 +86,7 @@ def build(
     "--format", "output_format", type=click.Choice(["text", "json", "dot"]), default="text"
 )
 @click.option("--duplicates/--no-duplicates", default=False, help="Show duplicate subcharts")
+@click.option("--hide-libraries/--show-libraries", default=True, help="Hide library charts")
 @click.option("--helm-bin", default="helm", help="Path to helm binary")
 def analyse(
     chart_path: Path,
@@ -90,6 +94,7 @@ def analyse(
     values_file: Path | None,
     output_format: str,
     duplicates: bool,
+    hide_libraries: bool,
     helm_bin: str,
 ) -> None:
     """Analyse rendered manifest against dependency graph.
@@ -106,7 +111,8 @@ def analyse(
         with open(values_file) as f:
             values = yaml.safe_load(f) or {}
 
-    evaluate_conditions(graph, values)
+    computed = get_computed_values(chart_path, values_file, helm_bin=helm_bin)
+    evaluate_conditions(graph, values, computed_values=computed)
 
     # Parse manifest
     with open(manifest_path) as f:
@@ -116,7 +122,7 @@ def analyse(
 
     # Output
     if output_format == "text":
-        click.echo(format_manifest_text(mappings, graph))
+        click.echo(format_manifest_text(mappings, graph, hide_libraries=hide_libraries))
     elif output_format == "json":
         import json
 
@@ -135,7 +141,7 @@ def analyse(
         ]
         click.echo(json.dumps(data, indent=2))
     elif output_format == "dot":
-        click.echo(format_dot(graph))
+        click.echo(format_dot(graph, hide_libraries=hide_libraries, mappings=mappings))
 
 
 if __name__ == "__main__":

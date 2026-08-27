@@ -2,7 +2,12 @@
 
 from pathlib import Path
 
-from helm_analyse.graph import ChartNode, DependencyGraph, _parse_dependency
+from helm_analyse.graph import (
+    ChartNode,
+    DependencyGraph,
+    _parse_computed_values,
+    _parse_dependency,
+)
 
 
 class TestChartNode:
@@ -105,6 +110,15 @@ class TestParseDependency:
         node = _parse_dependency(dep)
         assert node.tags == ["frontend", "web"]
 
+    def test_dependency_with_type(self) -> None:
+        dep = {
+            "name": "common",
+            "version": "1.0.0",
+            "type": "library",
+        }
+        node = _parse_dependency(dep)
+        assert node.chart_type == "library"
+
 
 class TestBuildGraph:
     """Tests for build_graph with local chart directories."""
@@ -167,3 +181,183 @@ version: 2.0.0
 
         sub2_node = graph.nodes["mychart/sub2"]
         assert sub2_node.tags == ["backend"]
+
+    def test_build_graph_with_library_chart(self, tmp_path: Path) -> None:
+        """Test building graph with a library chart."""
+        root_chart = tmp_path / "mychart"
+        root_chart.mkdir()
+        (root_chart / "Chart.yaml").write_text(
+            """
+apiVersion: v2
+name: mychart
+version: 0.1.0
+dependencies:
+  - name: common
+    version: 1.0.0
+  - name: sub1
+    version: 1.0.0
+    condition: sub1.enabled
+"""
+        )
+
+        # Create common library chart
+        common_dir = root_chart / "charts" / "common"
+        common_dir.mkdir(parents=True)
+        (common_dir / "Chart.yaml").write_text(
+            """
+apiVersion: v2
+name: common
+version: 1.0.0
+type: library
+"""
+        )
+
+        # Create sub1 chart
+        sub1_dir = root_chart / "charts" / "sub1"
+        sub1_dir.mkdir(parents=True)
+        (sub1_dir / "Chart.yaml").write_text(
+            """
+apiVersion: v2
+name: sub1
+version: 1.0.0
+"""
+        )
+
+        from helm_analyse.graph import build_graph
+
+        graph = build_graph(root_chart, use_helm_build=False)
+
+        assert graph.root.name == "mychart"
+        assert len(graph.nodes) == 3
+
+        common_node = graph.nodes["mychart/common"]
+        assert common_node.chart_type == "library"
+
+        sub1_node = graph.nodes["mychart/sub1"]
+        assert sub1_node.chart_type is None
+
+
+class TestParseComputedValues:
+    """Tests for _parse_computed_values function."""
+
+    def test_parses_standard_output(self) -> None:
+        output = (
+            "NAME: test\n"
+            "NAMESPACE: default\n"
+            "COMPUTED VALUES:\n"
+            "key1: value1\n"
+            "subchart:\n"
+            "  enabled: true\n"
+            "\n"
+            "HOOKS:\n"
+            "---\n"
+            "# Source: test/templates/foo.yaml\n"
+        )
+        result = _parse_computed_values(output)
+        assert result == {"key1": "value1", "subchart": {"enabled": True}}
+
+    def test_empty_values_section(self) -> None:
+        output = "NAME: test\nCOMPUTED VALUES:\n{}\n\nHOOKS:\n"
+        result = _parse_computed_values(output)
+        assert result == {}
+
+    def test_null_values_section(self) -> None:
+        output = "NAME: test\nCOMPUTED VALUES:\nnull\n\nHOOKS:\n"
+        result = _parse_computed_values(output)
+        assert result == {}
+
+    def test_missing_computed_values(self) -> None:
+        output = "NAME: test\nHOOKS:\n"
+        result = _parse_computed_values(output)
+        assert result == {}
+
+    def test_manifest_without_hooks_section(self) -> None:
+        output = "NAME: test\nCOMPUTED VALUES:\na: 1\n\nMANIFEST:\n---\n"
+        result = _parse_computed_values(output)
+        assert result == {"a": 1}
+
+    def test_real_helm_output(self) -> None:
+        """Test with actual helm install --dry-run --debug output."""
+        output = (
+            "NAME: test\n"
+            "LAST DEPLOYED: Wed Aug 26 18:31:19 2026\n"
+            "NAMESPACE: default\n"
+            "STATUS: pending-install\n"
+            "REVISION: 1\n"
+            "DESCRIPTION: Dry run complete\n"
+            "TEST SUITE: None\n"
+            "USER-SUPPLIED VALUES:\n"
+            "{}\n"
+            "\n"
+            "COMPUTED VALUES:\n"
+            "global:\n"
+            "  env: test\n"
+            "parent-a:\n"
+            "  shared:\n"
+            "    enabled: true\n"
+            "  global:\n"
+            "    env: test\n"
+            "parent-b:\n"
+            "  shared:\n"
+            "    enabled: false\n"
+            "  global:\n"
+            "    env: test\n"
+            "\n"
+            "HOOKS:\n"
+            "---\n"
+            "# Source: test/templates/foo.yaml\n"
+        )
+        result = _parse_computed_values(output)
+        assert result["global"] == {"env": "test"}
+        assert result["parent-a"]["shared"]["enabled"] is True
+        assert result["parent-b"]["shared"]["enabled"] is False
+
+    def test_empty_string(self) -> None:
+        assert _parse_computed_values("") == {}
+
+
+class TestGetComputedValues:
+    """Integration tests for get_computed_values with real chart."""
+
+    FIXTURE = Path(__file__).parent / "fixtures" / "charts" / "test-values-analysis"
+
+    def test_returns_computed_values(self) -> None:
+        from helm_analyse.graph import get_computed_values
+
+        result = get_computed_values(self.FIXTURE)
+        assert isinstance(result, dict)
+        assert "global" in result
+        assert result["global"]["env"] == "test"
+
+    def test_shared_enabled_via_parent_a(self) -> None:
+        """parent-a enables shared (shared.enabled: true) in its values."""
+        from helm_analyse.graph import get_computed_values
+
+        result = get_computed_values(self.FIXTURE)
+        # parent-a's values override shared's default (false)
+        assert result["parent-a"]["shared"]["enabled"] is True
+
+    def test_child_enabled_via_grandparent(self) -> None:
+        """grandparent sets parent-c.child.enabled: true, overriding parent-c default."""
+        from helm_analyse.graph import get_computed_values
+
+        result = get_computed_values(self.FIXTURE)
+        assert result["grandparent"]["parent-c"]["child"]["enabled"] is True
+
+    def test_deep_nesting_preserves_values(self) -> None:
+        """level1 → level2 → level3 → level4 condition chain is preserved."""
+        from helm_analyse.graph import get_computed_values
+
+        result = get_computed_values(self.FIXTURE)
+        assert result["level1"]["level2"]["enabled"] is True
+        assert result["level1"]["level2"]["level3"]["enabled"] is True
+        assert result["level1"]["level2"]["level3"]["level4"]["enabled"] is True
+
+    def test_with_values_file(self, tmp_path: Path) -> None:
+        """Values file overrides are reflected in computed values."""
+        from helm_analyse.graph import get_computed_values
+
+        values_file = tmp_path / "values.yaml"
+        values_file.write_text("global:\n  env: production\n")
+        result = get_computed_values(self.FIXTURE, values_file=values_file)
+        assert result["global"]["env"] == "production"
