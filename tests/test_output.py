@@ -381,14 +381,14 @@ class TestMultiPathEnabled:
         # So: 3 enabled (root, b, shared), 1 disabled (a), 0 unknown
         assert "3 enabled, 1 disabled, 0 unknown" in text
 
-    def test_edge_from_disabled_parent_solid_when_effectively_enabled(self) -> None:
-        """Edge from disabled parent to shared chart is solid because shared has an enabled path."""
+    def test_edge_from_disabled_parent_dashed_when_enabled_via_other_path(self) -> None:
+        """Edge from disabled parent to shared chart is dashed because it does not enable shared."""
         graph = self._make_diamond_graph()
         dot = format_dot(graph)
         for line in dot.split("\n"):
             if '"a" -> "shared"' in line:
-                # shared is effectively enabled (has enabled path through b)
-                assert 'style="solid"' in line
+                # a is disabled, so its path does not enable shared => dashed
+                assert 'style="dashed"' in line
                 break
         else:
             raise AssertionError("a -> shared edge not found")

@@ -218,8 +218,7 @@ def format_dot(
             if hide_libraries and _is_library(child):
                 continue
             _add_node(child)
-            child_eff = effective_enabled(graph, child.key)
-            edge_style = "solid" if child_eff is not False else "dashed"
+            edge_style = "solid" if child.enabled is not False else "dashed"
             lines.append(f'  "{node.name}" -> "{child.name}" [style="{edge_style}"];')
 
     _add_node(graph.root)
