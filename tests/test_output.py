@@ -1,8 +1,7 @@
 """Tests for output formatters."""
 
 from helm_analyse.graph import ChartNode, DependencyGraph
-from helm_analyse.manifest import ResourceMapping
-from helm_analyse.output import format_dot, format_json, format_manifest_text, format_text
+from helm_analyse.output import format_dot, format_json, format_text
 
 
 def _build_graph() -> DependencyGraph:
@@ -70,100 +69,6 @@ class TestFormatDot:
 
         graph = _build_graph()
         dot = format_dot(graph)
-        with tempfile.NamedTemporaryFile(suffix=".dot", mode="w") as f:
-            f.write(dot)
-            f.flush()
-            result = subprocess.run(
-                ["dot", "-Tsvg", f.name, "-o", "/dev/null"],
-                capture_output=True,
-                text=True,
-            )
-        assert result.returncode == 0, f"dot failed: {result.stderr}"
-
-    def test_deployed_chart_green(self) -> None:
-        graph = _build_graph()
-        mappings = [
-            ResourceMapping(
-                kind="Deployment",
-                name="app",
-                namespace=None,
-                chart_label=None,
-                source_comment=None,
-                chart_node_path="root/sub1",
-                chart_node_name="sub1",
-                is_active=True,
-            )
-        ]
-        dot = format_dot(graph, mappings=mappings)
-        assert "fillcolor=lightgreen" in dot
-        assert "color=darkgreen" in dot
-
-    def test_enabled_not_deployed_orange(self) -> None:
-        root = ChartNode(name="root", version="1.0.0", enabled=True)
-        sub = ChartNode(name="sub", version="0.1.0", enabled=True)
-        root.children["sub"] = sub
-        graph = DependencyGraph(root=root)
-        graph.flatten()
-
-        # No mappings means sub has no resources
-        dot = format_dot(graph, mappings=[])
-        assert "fillcolor=moccasin" in dot
-        assert "color=darkorange" in dot
-
-    def test_disabled_chart_red(self) -> None:
-        graph = _build_graph()
-        # sub2 is disabled, should still be lightsalmon
-        dot = format_dot(graph, mappings=[])
-        assert '"sub2"' in dot
-        # Find the line for sub2
-        for line in dot.split("\n"):
-            if '"sub2"' in line and "fillcolor" in line:
-                assert "lightsalmon" in line
-                assert "orangered" in line
-                break
-        else:
-            raise AssertionError("sub2 node not found in DOT output")
-
-    def test_unknown_chart_grey(self) -> None:
-        graph = _build_graph()
-        # sub3 is unknown (enabled=None), should be lightgrey
-        dot = format_dot(graph, mappings=[])
-        for line in dot.split("\n"):
-            if '"sub3"' in line and "fillcolor" in line:
-                assert "lightgrey" in line
-                assert "grey" in line
-                break
-        else:
-            raise AssertionError("sub3 node not found in DOT output")
-
-    def test_no_mappings_uses_3_state(self) -> None:
-        graph = _build_graph()
-        dot = format_dot(graph, mappings=None)
-        # Should NOT have moccasin (only used with mappings)
-        assert "moccasin" not in dot
-        # Should have the standard 3 states
-        assert "lightgreen" in dot
-        assert "lightsalmon" in dot
-        assert "lightgrey" in dot
-
-    def test_dot_syntax_valid_with_mappings(self) -> None:
-        import subprocess
-        import tempfile
-
-        graph = _build_graph()
-        mappings = [
-            ResourceMapping(
-                kind="Deployment",
-                name="app",
-                namespace=None,
-                chart_label=None,
-                source_comment=None,
-                chart_node_path="root/sub1",
-                chart_node_name="sub1",
-                is_active=True,
-            )
-        ]
-        dot = format_dot(graph, mappings=mappings)
         with tempfile.NamedTemporaryFile(suffix=".dot", mode="w") as f:
             f.write(dot)
             f.flush()
@@ -304,107 +209,6 @@ class TestFormatDot:
         assert "(alias: custom)" in text
 
 
-class TestFormatManifestText:
-    """Tests for manifest text output format."""
-
-    def test_enabled_section(self) -> None:
-        graph = _build_graph()
-        mappings = [
-            ResourceMapping(
-                kind="Deployment",
-                name="app",
-                namespace=None,
-                chart_label=None,
-                source_comment=None,
-                chart_node_path="root/sub1",
-                chart_node_name="sub1",
-                is_active=True,
-            )
-        ]
-        text = format_manifest_text(mappings, graph)
-        assert "Enabled charts:" in text
-        assert "Chart: sub1 [active]" in text
-        assert "Deployment/app" in text
-
-    def test_disabled_section(self) -> None:
-        graph = _build_graph()
-        mappings = [
-            ResourceMapping(
-                kind="Service",
-                name="svc",
-                namespace=None,
-                chart_label=None,
-                source_comment=None,
-                chart_node_path="root/sub2",
-                chart_node_name="sub2",
-                is_active=False,
-            )
-        ]
-        text = format_manifest_text(mappings, graph)
-        assert "Disabled charts:" in text
-        assert "Chart: sub2 [inactive]" in text
-        assert "Service/svc" in text
-
-    def test_unknown_section(self) -> None:
-        graph = _build_graph()
-        mappings = [
-            ResourceMapping(
-                kind="ConfigMap",
-                name="cfg",
-                namespace=None,
-                chart_label=None,
-                source_comment=None,
-                chart_node_path="root/sub3",
-                chart_node_name="sub3",
-                is_active=None,
-            )
-        ]
-        text = format_manifest_text(mappings, graph)
-        assert "Unknown charts:" in text
-        assert "Chart: sub3 [unknown]" in text
-
-    def test_unmapped_resources(self) -> None:
-        graph = _build_graph()
-        mappings = [
-            ResourceMapping(
-                kind="Namespace",
-                name="kube-system",
-                namespace=None,
-                chart_label=None,
-                source_comment=None,
-                chart_node_path=None,
-                chart_node_name=None,
-                is_active=None,
-            )
-        ]
-        text = format_manifest_text(mappings, graph)
-        assert "Unmapped resources:" in text
-        assert "Namespace/kube-system" in text
-
-    def test_namespace_shown(self) -> None:
-        graph = _build_graph()
-        mappings = [
-            ResourceMapping(
-                kind="Deployment",
-                name="app",
-                namespace="production",
-                chart_label=None,
-                source_comment=None,
-                chart_node_path="root/sub1",
-                chart_node_name="sub1",
-                is_active=True,
-            )
-        ]
-        text = format_manifest_text(mappings, graph)
-        assert "(ns: production)" in text
-
-    def test_empty_manifest(self) -> None:
-        graph = _build_graph()
-        text = format_manifest_text([], graph)
-        assert "Manifest Analysis" in text
-        assert "=" * 40 in text
-
-
 class TestFormatJson:
     """Tests for JSON output format."""
 
@@ -524,42 +328,6 @@ class TestLibraryCharts:
                 text=True,
             )
         assert result.returncode == 0, f"dot failed: {result.stderr}"
-
-    def test_manifest_hides_libraries(self) -> None:
-        root = ChartNode(name="root", version="1.0.0", enabled=True)
-        lib = ChartNode(name="common", version="1.0.0", chart_type="library", enabled=None)
-        sub = ChartNode(name="sub", version="0.1.0", enabled=True)
-        root.children["common"] = lib
-        root.children["sub"] = sub
-        graph = DependencyGraph(root=root)
-        graph.flatten()
-
-        mappings = [
-            ResourceMapping(
-                kind="Deployment",
-                name="app",
-                namespace=None,
-                chart_label=None,
-                source_comment=None,
-                chart_node_path="root/sub",
-                chart_node_name="sub",
-                is_active=True,
-            ),
-            ResourceMapping(
-                kind="ConfigMap",
-                name="common-cfg",
-                namespace=None,
-                chart_label=None,
-                source_comment=None,
-                chart_node_path="root/common",
-                chart_node_name="common",
-                is_active=None,
-            ),
-        ]
-
-        text = format_manifest_text(mappings, graph, hide_libraries=True)
-        assert "common" not in text
-        assert "sub" in text
 
 
 class TestMultiPathEnabled:

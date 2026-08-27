@@ -7,7 +7,6 @@ from typing import Any
 
 from helm_analyse.conditions import effective_enabled
 from helm_analyse.graph import ChartNode, DependencyGraph
-from helm_analyse.manifest import ResourceMapping
 
 
 def _is_library(node: ChartNode) -> bool:
@@ -164,26 +163,16 @@ def format_json(
 def format_dot(
     graph: DependencyGraph,
     hide_libraries: bool = True,
-    mappings: list[ResourceMapping] | None = None,
 ) -> str:
     """Format graph as Graphviz DOT.
 
     Args:
         graph: The dependency graph.
         hide_libraries: If True, exclude library charts from output.
-        mappings: Optional manifest analysis results. When provided, uses
-            a 4-state color scheme to indicate deployment status.
 
     Returns:
         DOT string.
     """
-    # Build set of chart names that have resources in the manifest
-    deployed: set[str] = set()
-    if mappings is not None:
-        for m in mappings:
-            if m.chart_node_name:
-                deployed.add(m.chart_node_name)
-
     lines = [
         "digraph helm_deps {",
         "  rankdir=TB;",
@@ -208,39 +197,18 @@ def format_dot(
         if _is_library(node):
             label += "\\n(library)"
 
-        if mappings is not None:
-            # 4-state: enabled+deployed, enabled+not deployed, disabled, unknown
-            is_deployed = node.name in deployed
-            if eff is True and is_deployed:
-                fill = "lightgreen"
-                style = "filled"
-                border = "darkgreen"
-            elif eff is True and not is_deployed:
-                fill = "moccasin"
-                style = "filled,dashed"
-                border = "darkorange"
-            elif eff is False:
-                fill = "lightsalmon"
-                style = "filled,dashed"
-                border = "orangered"
-            else:
-                fill = "lightgrey"
-                style = "filled,dotted"
-                border = "grey"
+        if eff is True:
+            fill = "lightgreen"
+            style = "filled"
+            border = "darkgreen"
+        elif eff is False:
+            fill = "lightsalmon"
+            style = "filled,dashed"
+            border = "orangered"
         else:
-            # 3-state: enabled, disabled, unknown
-            if eff is True:
-                fill = "lightgreen"
-                style = "filled"
-                border = "darkgreen"
-            elif eff is False:
-                fill = "lightsalmon"
-                style = "filled,dashed"
-                border = "orangered"
-            else:
-                fill = "lightgrey"
-                style = "filled,dotted"
-                border = "grey"
+            fill = "lightgrey"
+            style = "filled,dotted"
+            border = "grey"
 
         lines.append(
             f'  "{node.name}" [label="{label}" fillcolor={fill} style="{style}" color={border}];'
@@ -256,91 +224,6 @@ def format_dot(
 
     _add_node(graph.root)
     lines.append("}")
-
-    return "\n".join(lines)
-
-
-def format_manifest_text(
-    mappings: list[ResourceMapping],
-    graph: DependencyGraph,
-    hide_libraries: bool = True,
-) -> str:
-    """Format manifest analysis as human-readable text.
-
-    Groups resources by chart, then sections charts by enabled status
-    with blank line separators.
-
-    Args:
-        mappings: Resource mappings from manifest analysis.
-        graph: The dependency graph.
-        hide_libraries: If True, exclude library charts from output.
-
-    Returns:
-        Formatted text string.
-    """
-    lines: list[str] = ["Manifest Analysis", "=" * 40, ""]
-
-    # Build a set of library chart names to skip
-    library_names: set[str] = set()
-    if hide_libraries:
-        for node in graph.nodes.values():
-            if _is_library(node):
-                library_names.add(node.name)
-
-    # Group by chart
-    by_chart: dict[str, list[ResourceMapping]] = {}
-    unmapped: list[ResourceMapping] = []
-    for mapping in mappings:
-        if mapping.chart_node_name:
-            if hide_libraries and mapping.chart_node_name in library_names:
-                continue
-            by_chart.setdefault(mapping.chart_node_name, []).append(mapping)
-        else:
-            unmapped.append(mapping)
-
-    # Resolve chart statuses using effective_enabled
-    chart_status: dict[str, bool | None] = {}
-    for chart_name in by_chart:
-        chart_status[chart_name] = effective_enabled(graph, chart_name)
-
-    def _render_chart_section(chart_name: str) -> None:
-        status = _status_str(chart_status.get(chart_name))
-        lines.append(f"Chart: {chart_name} {status}")
-        lines.append("-" * 40)
-        for m in by_chart[chart_name]:
-            ns_str = f" (ns: {m.namespace})" if m.namespace else ""
-            lines.append(f"  {m.kind}/{m.name}{ns_str}")
-        lines.append("")
-
-    enabled_charts = [c for c, s in chart_status.items() if s is True]
-    disabled_charts = [c for c, s in chart_status.items() if s is False]
-    unknown_charts = [c for c, s in chart_status.items() if s is None]
-
-    if enabled_charts:
-        lines.append("Enabled charts:")
-        lines.append("-" * 40)
-        for chart_name in sorted(enabled_charts):
-            _render_chart_section(chart_name)
-
-    if disabled_charts:
-        lines.append("Disabled charts:")
-        lines.append("-" * 40)
-        for chart_name in sorted(disabled_charts):
-            _render_chart_section(chart_name)
-
-    if unknown_charts:
-        lines.append("Unknown charts:")
-        lines.append("-" * 40)
-        for chart_name in sorted(unknown_charts):
-            _render_chart_section(chart_name)
-
-    if unmapped:
-        lines.append("Unmapped resources:")
-        lines.append("-" * 40)
-        for m in unmapped:
-            ns_str = f" (ns: {m.namespace})" if m.namespace else ""
-            lines.append(f"  {m.kind}/{m.name}{ns_str}")
-        lines.append("")
 
     return "\n".join(lines)
 

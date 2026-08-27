@@ -2,7 +2,7 @@
 
 ## Project
 
-Python CLI tool for building Helm chart dependency graphs and analysing rendered manifests against them. Evaluates conditional dependencies recursively.
+Python CLI tool for building Helm chart dependency graphs and evaluating conditional dependencies (recursively) against merged values. No manifest analysis — a single `build` command covers condition evaluation via `get_computed_values()`.
 
 ## Conventions
 
@@ -24,10 +24,9 @@ uv run ruff format . && uv run ruff check . && uv run mypy . && uv run pytest te
 ```
 src/helm_analyse/
 ├── __init__.py      # Package version
-├── cli.py           # Click CLI (build, analyse commands)
+├── cli.py           # Click CLI (build command)
 ├── graph.py         # ChartNode/DependencyGraph models, helm CLI integration
 ├── conditions.py    # Condition/tag evaluator per Helm spec
-├── manifest.py      # Manifest parser, resource-to-node mapper
 └── output.py        # Text tree, JSON, DOT formatters
 ```
 
@@ -36,9 +35,6 @@ src/helm_analyse/
 ```bash
 # Build dependency graph
 helm-analyse build <chart_path> [-f values.yaml] [--format text|json|dot] [--duplicates]
-
-# Analyse rendered manifest against graph
-helm-analyse analyse <chart_path> <manifest_path> [-f values.yaml] [--format text|json|dot]
 ```
 
 ## Helm-specific notes
@@ -46,7 +42,6 @@ helm-analyse analyse <chart_path> <manifest_path> [-f values.yaml] [--format tex
 - Graph built by parsing `Chart.yaml` files from `charts/` directory (requires `helm dependency build` or local charts).
 - Condition paths are comma-separated; first valid path wins (per Helm spec).
 - Tags evaluated as OR (any tag true = enabled); conditions override tags.
-- Resources matched to graph nodes via `helm.sh/chart` label or `# Source:` comments.
 - Chart `values.yaml` can contain Go templates — treat them as opaque strings unless rendering is required.
 - Merged values obtained via `helm install --dry-run=client --debug`; parse the `COMPUTED VALUES:` YAML block. Debug logs go to stderr, values to stdout.
 - Condition evaluation accepts a `computed_values` param (root-merged values from helm) used in place of raw root values; combined with the prefix rule (`prefix.condition_path`) it correctly resolves grandparent and diamond cases.
