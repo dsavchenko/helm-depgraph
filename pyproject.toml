@@ -2,6 +2,7 @@
 name = "helm-analyse"
 version = "0.1.0"
 description = "CLI tool for building Helm chart dependency graphs and analysing rendered manifests"
+license = { text = "MIT" }
 requires-python = ">=3.12"
 dependencies = [
     "click>=8.0",
