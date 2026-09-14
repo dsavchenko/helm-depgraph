@@ -1,5 +1,6 @@
 """Tests for graph model."""
 
+import tarfile
 from pathlib import Path
 
 from helm_analyse.graph import (
@@ -235,6 +236,127 @@ version: 1.0.0
 
         sub1_node = graph.nodes["mychart/sub1"]
         assert sub1_node.chart_type is None
+
+    def test_build_graph_from_archived_dependencies(self, tmp_path: Path) -> None:
+        """Graph is built from .tgz archives only (like after `helm dependency build`).
+
+        The original chart directory must not be modified: no unpacked
+        directories may appear next to the .tgz files.
+        """
+        # Root chart whose charts/ dir contains only archived dependencies.
+        root_chart = tmp_path / "mychart"
+        root_chart.mkdir()
+        (root_chart / "Chart.yaml").write_text(
+            """
+apiVersion: v2
+name: mychart
+version: 0.1.0
+dependencies:
+  - name: sub1
+    version: 1.0.0
+    condition: sub1.enabled
+"""
+        )
+        charts_dir = root_chart / "charts"
+        charts_dir.mkdir()
+
+        # Stage sub1 with a nested dependency (sub2) and archive it.
+        stage = tmp_path / "stage"
+        sub1_dir = stage / "sub1"
+        sub2_dir = sub1_dir / "charts" / "sub2"
+        sub2_dir.mkdir(parents=True)
+        (sub1_dir / "Chart.yaml").write_text(
+            """
+apiVersion: v2
+name: sub1
+version: 1.0.0
+dependencies:
+  - name: sub2
+    version: 0.2.0
+"""
+        )
+        (sub2_dir / "Chart.yaml").write_text(
+            """
+apiVersion: v2
+name: sub2
+version: 0.2.0
+"""
+        )
+
+        tgz_path = charts_dir / "sub1-1.0.0.tgz"
+        with tarfile.open(tgz_path, "w:gz") as tf:
+            tf.add(sub1_dir, arcname="sub1")
+
+        from helm_analyse.graph import build_graph
+
+        graph = build_graph(root_chart, use_helm_build=False)
+
+        assert graph.root.name == "mychart"
+        assert "mychart/sub1" in graph.nodes
+        assert "mychart/sub1/sub2" in graph.nodes
+        assert graph.nodes["mychart/sub1"].conditions == ["sub1.enabled"]
+
+        # The original chart path must be left untouched (only the .tgz remains).
+        assert sorted(p.name for p in charts_dir.iterdir()) == ["sub1-1.0.0.tgz"]
+
+    def test_build_graph_from_archived_dependency_chain(self, tmp_path: Path) -> None:
+        """Nested archives (subchart whose own charts/ is archived) are resolved."""
+        root_chart = tmp_path / "mychart"
+        root_chart.mkdir()
+        (root_chart / "Chart.yaml").write_text(
+            """
+apiVersion: v2
+name: mychart
+version: 0.1.0
+dependencies:
+  - name: parent
+    version: 1.0.0
+"""
+        )
+        charts_dir = root_chart / "charts"
+        charts_dir.mkdir()
+
+        # parent's charts/ also only contains a .tgz archive.
+        stage = tmp_path / "stage"
+        parent_dir = stage / "parent"
+        parent_dir.mkdir(parents=True)
+        (parent_dir / "Chart.yaml").write_text(
+            """
+apiVersion: v2
+name: parent
+version: 1.0.0
+dependencies:
+  - name: leaf
+    version: 0.1.0
+"""
+        )
+        parent_charts = parent_dir / "charts"
+        parent_charts.mkdir()
+        leaf_dir = stage / "leaf"
+        leaf_dir.mkdir()
+        (leaf_dir / "Chart.yaml").write_text(
+            """
+apiVersion: v2
+name: leaf
+version: 0.1.0
+"""
+        )
+        with tarfile.open(parent_charts / "leaf-0.1.0.tgz", "w:gz") as tf:
+            tf.add(leaf_dir, arcname="leaf")
+
+        # parent itself is archived alongside its (already archived) charts/.
+        with tarfile.open(charts_dir / "parent-1.0.0.tgz", "w:gz") as tf:
+            tf.add(parent_dir, arcname="parent")
+
+        from helm_analyse.graph import build_graph
+
+        graph = build_graph(root_chart, use_helm_build=False)
+
+        assert "mychart/parent" in graph.nodes
+        assert "mychart/parent/leaf" in graph.nodes
+
+        # Original chart path untouched — no unpacked dirs next to the archives.
+        assert sorted(p.name for p in charts_dir.iterdir()) == ["parent-1.0.0.tgz"]
 
 
 class TestParseComputedValues:

@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import contextlib
 import re
+import shutil
 import subprocess
+import tarfile
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
@@ -98,6 +101,19 @@ def _parse_dependency(dep: dict[str, Any]) -> ChartNode:
     )
 
 
+def _extract_tgz(tgz_path: Path, dest_dir: Path) -> None:
+    """Extract a .tgz chart archive into dest_dir, safe against path traversal."""
+    dest = dest_dir.resolve()
+    with tarfile.open(tgz_path, "r:gz") as tf:
+        for member in tf.getmembers():
+            member_path = Path(member.name)
+            if member_path.is_absolute() or ".." in member_path.parts:
+                raise ValueError(f"Unsafe path in archive: {member.name}")
+            if not (dest / member.name).resolve().is_relative_to(dest):
+                raise ValueError(f"Unsafe path in archive: {member.name}")
+        tf.extractall(dest)
+
+
 def build_graph(
     chart_path: Path,
     helm_bin: str = "helm",
@@ -120,33 +136,88 @@ def build_graph(
         with contextlib.suppress(subprocess.CalledProcessError):
             _run_helm(["dependency", "build", str(chart_path)], helm_bin=helm_bin)
 
-    _resolve_children(chart_path, root, chart_yaml)
+    # helm dependency build/update archives dependencies as .tgz files. Extract
+    # any archives into a temp dir instead of modifying the original chart path.
+    charts_dir: Path | None = None
+    original_charts_dir = chart_path / "charts"
+    if original_charts_dir.is_dir() and any(
+        p.suffix == ".tgz" for p in original_charts_dir.iterdir()
+    ):
+        charts_dir = Path(tempfile.mkdtemp(prefix="helm-analyse-"))
+
+    try:
+        _resolve_children(
+            chart_path,
+            root,
+            chart_yaml,
+            charts_dir=charts_dir,
+            mirror_root=charts_dir,
+        )
+    finally:
+        if charts_dir is not None:
+            shutil.rmtree(charts_dir, ignore_errors=True)
 
     graph = DependencyGraph(root=root)
     graph.flatten()
     return graph
 
 
-def _resolve_children(chart_path: Path, node: ChartNode, chart_yaml: dict[str, Any]) -> None:
+def _resolve_children(
+    chart_path: Path,
+    node: ChartNode,
+    chart_yaml: dict[str, Any],
+    charts_dir: Path | None = None,
+    mirror_root: Path | None = None,
+) -> None:
     """Recursively resolve children from the charts/ directory.
 
     Parses the parent's Chart.yaml dependencies list to get conditions/tags/alias,
     then matches them to subdirectories in charts/.
+
+    Args:
+        chart_path: Path to the chart directory.
+        charts_dir: Optional temp directory that receives the unpacked .tgz
+            archives from the top-level chart's charts/ directory, so the original
+            chart path is left untouched.
+        mirror_root: Temp directory holding the extracted dependency tree. Nested
+            .tgz archives found inside mirrored (temp) subcharts are unpacked in
+            place there; the original chart path is never modified.
     """
-    charts_dir = chart_path / "charts"
-    if not charts_dir.exists():
+    original_charts_dir = chart_path / "charts"
+    if not original_charts_dir.exists():
         return
 
-    # Build a lookup from Chart.yaml dependencies
     deps_list = chart_yaml.get("dependencies", [])
     deps_by_name: dict[str, dict[str, Any]] = {}
     for dep in deps_list:
         deps_by_name[dep["name"]] = dep
 
-    for dep_dir in sorted(charts_dir.iterdir()):
-        if not dep_dir.is_dir():
-            continue
+    # Unpack archived dependencies. Top-level archives go into the temp mirror
+    # (charts_dir); nested archives found inside already-mirrored charts are
+    # unpacked in place there. The original chart path is never modified.
+    mirror_is_safe = mirror_root is not None and chart_path.resolve().is_relative_to(
+        mirror_root.resolve()
+    )
+    if charts_dir is not None:
+        for tgz_path in sorted(original_charts_dir.glob("*.tgz")):
+            _extract_tgz(tgz_path, charts_dir)
+    elif mirror_is_safe:
+        for tgz_path in sorted(original_charts_dir.glob("*.tgz")):
+            _extract_tgz(tgz_path, original_charts_dir)
 
+    # Collect candidate child directories. Extracted (temp) copies win over
+    # pre-existing directories of the same name; unpacked dirs without a tarball
+    # counterpart are still picked up from the original charts/ directory.
+    candidates: dict[str, Path] = {}
+    if charts_dir is not None:
+        for dep_dir in sorted(charts_dir.iterdir()):
+            if dep_dir.is_dir():
+                candidates[dep_dir.name] = dep_dir
+    for dep_dir in sorted(original_charts_dir.iterdir()):
+        if dep_dir.is_dir():
+            candidates.setdefault(dep_dir.name, dep_dir)
+
+    for dep_dir in sorted(candidates.values(), key=lambda p: p.name):
         dep_chart_yaml_path = dep_dir / "Chart.yaml"
         if not dep_chart_yaml_path.exists():
             continue
@@ -163,7 +234,7 @@ def _resolve_children(chart_path: Path, node: ChartNode, chart_yaml: dict[str, A
         child.alias = dep_def.get("alias")
 
         node.children[child.key] = child
-        _resolve_children(dep_dir, child, dep_data)
+        _resolve_children(dep_dir, child, dep_data, mirror_root=mirror_root)
 
 
 def build_graph_from_helm_show(
