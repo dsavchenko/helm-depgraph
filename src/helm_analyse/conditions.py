@@ -163,12 +163,13 @@ def _evaluate_node(node: ChartNode, values: dict[str, Any], prefix: str = "") ->
                     node.name,
                 )
 
-    # Fall back to tags
-    if node.tags:
-        for tag in node.tags:
-            if _resolve_path(f"tags.{tag}", values) is True:
-                node.enabled = True
-                return
+    # Fall back to tags: any true tag enables; otherwise any false tag disables;
+    # tags that are unset (or non-boolean) have no effect.
+    tag_values = [_resolve_path(f"tags.{tag}", values) for tag in node.tags]
+    if any(v is True for v in tag_values):
+        node.enabled = True
+        return
+    if any(v is False for v in tag_values):
         node.enabled = False
         return
 

@@ -124,6 +124,26 @@ class TestEvaluateConditions:
         evaluate_conditions(graph, {"tags": {"web": False, "backend": True}})
         assert graph.nodes["root/subchart"].enabled is True
 
+    def test_unset_tags_default_enabled(self) -> None:
+        graph = self._make_graph(conditions=[], tags=["web", "backend"])
+        evaluate_conditions(graph, {})
+        assert graph.nodes["root/subchart"].enabled is True
+
+    def test_false_tag_with_unset_tag_disables(self) -> None:
+        graph = self._make_graph(conditions=[], tags=["web", "backend"])
+        evaluate_conditions(graph, {"tags": {"web": False}})
+        assert graph.nodes["root/subchart"].enabled is False
+
+    def test_non_boolean_tag_has_no_effect(self) -> None:
+        graph = self._make_graph(conditions=[], tags=["web"])
+        evaluate_conditions(graph, {"tags": {"web": 0}})
+        assert graph.nodes["root/subchart"].enabled is True
+
+    def test_non_decisive_condition_falls_back_to_tags(self) -> None:
+        graph = self._make_graph(conditions=["subchart.enabled"], tags=["web"])
+        evaluate_conditions(graph, {"tags": {"web": False}})
+        assert graph.nodes["root/subchart"].enabled is False
+
     def test_no_conditions_no_tags_defaults_enabled(self) -> None:
         graph = self._make_graph(conditions=[], tags=[])
         evaluate_conditions(graph, {})
