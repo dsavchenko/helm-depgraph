@@ -1,5 +1,7 @@
 """Tests for output formatters."""
 
+import json
+
 import pytest
 
 from helm_analyse.graph import DependencyGraph, Occurrence
@@ -271,21 +273,58 @@ class TestFormatText:
 class TestFormatJson:
     """Tests for JSON output format."""
 
-    def test_enabled_field_present(self) -> None:
-        graph = _build_graph()
-        import json
+    def test_occurrences_and_charts(self) -> None:
+        data = json.loads(format_json(_build_evaluated_graph()))
+        assert set(data) == {"occurrences", "charts"}
+        occ = {o["path"]: o for o in data["occurrences"]}
+        assert list(occ) == ["root", "root/sub1", "root/sub1/leaf", "root/sub2", "root/sub3"]
+        assert occ["root/sub1"] == {
+            "path": "root/sub1",
+            "chart": "sub1",
+            "alias": None,
+            "version": "0.1.0",
+            "repository": None,
+            "type": None,
+            "conditions": [],
+            "tags": [],
+            "status": "on",
+        }
+        assert occ["root/sub2"]["status"] == "off"
+        charts = {c["name"]: c for c in data["charts"]}
+        assert charts["sub2"] == {
+            "name": "sub2",
+            "versions": ["0.2.0"],
+            "type": None,
+            "status": "off",
+        }
+
+    def test_diamond_occurrence_vs_chart_status(self) -> None:
+        root = Occurrence(name="root", version="1.0.0", enabled=True)
+        a = Occurrence(name="a", version="1.0.0", enabled=False)
+        b = Occurrence(name="b", version="1.0.0", enabled=True)
+        a.children["db"] = Occurrence(
+            name="postgresql", version="15.1.0", alias="db", enabled=False
+        )
+        b.children["postgresql"] = Occurrence(name="postgresql", version="15.0.0", enabled=True)
+        root.children["a"] = a
+        root.children["b"] = b
+        graph = DependencyGraph(root=root)
+        graph.flatten()
 
         data = json.loads(format_json(graph))
-        assert data["root"]["enabled"] is True
-        assert data["nodes"]["root/sub1"]["enabled"] is True
-        assert data["nodes"]["root/sub2"]["enabled"] is False
-        assert data["nodes"]["root/sub3"]["enabled"] is None
+        occ = {o["path"]: o for o in data["occurrences"]}
+        assert occ["root/a/db"]["chart"] == "postgresql"
+        assert occ["root/a/db"]["alias"] == "db"
+        assert occ["root/a/db"]["status"] == "off"
+        assert occ["root/b/postgresql"]["status"] == "on"
+        pg = [c for c in data["charts"] if c["name"] == "postgresql"]
+        assert pg == [
+            {"name": "postgresql", "versions": ["15.0.0", "15.1.0"], "type": None, "status": "on"}
+        ]
 
     def test_chart_type_in_json(self) -> None:
-        import json
-
         root = Occurrence(name="root", version="1.0.0", enabled=True)
-        lib = Occurrence(name="common", version="1.0.0", chart_type="library", enabled=None)
+        lib = Occurrence(name="common", version="1.0.0", chart_type="library", enabled=True)
         sub = Occurrence(name="sub", version="0.1.0", enabled=True)
         root.children["common"] = lib
         root.children["sub"] = sub
@@ -293,15 +332,12 @@ class TestFormatJson:
         graph.flatten()
 
         data = json.loads(format_json(graph, hide_libraries=False))
-        assert data["root"]["chart_type"] is None
-        assert data["nodes"]["root/common"]["chart_type"] == "library"
-        assert data["nodes"]["root/sub"]["chart_type"] is None
+        types = {c["name"]: c["type"] for c in data["charts"]}
+        assert types == {"root": None, "common": "library", "sub": None}
 
     def test_hide_libraries(self) -> None:
-        import json
-
         root = Occurrence(name="root", version="1.0.0", enabled=True)
-        lib = Occurrence(name="common", version="1.0.0", chart_type="library", enabled=None)
+        lib = Occurrence(name="common", version="1.0.0", chart_type="library", enabled=True)
         sub = Occurrence(name="sub", version="0.1.0", enabled=True)
         root.children["common"] = lib
         root.children["sub"] = sub
@@ -309,8 +345,12 @@ class TestFormatJson:
         graph.flatten()
 
         data = json.loads(format_json(graph, hide_libraries=True))
-        assert "root/common" not in data["nodes"]
-        assert "root/sub" in data["nodes"]
+        assert [o["path"] for o in data["occurrences"]] == ["root", "root/sub"]
+        assert [c["name"] for c in data["charts"]] == ["root", "sub"]
+
+    def test_unevaluated_graph_raises(self) -> None:
+        with pytest.raises(ValueError, match="not been evaluated"):
+            format_json(_build_graph())
 
 
 class TestLibraryCharts:
@@ -424,15 +464,12 @@ class TestMultiPathEnabled:
         assert "shared-1.0.0 [off]" in text
         assert "shared-1.0.0 [on]" in text
 
-    def test_json_shows_enabled_when_any_path_enabled(self) -> None:
-        import json
-
+    def test_json_chart_on_when_any_occurrence_on(self) -> None:
         graph = self._make_diamond_graph()
         data = json.loads(format_json(graph))
-        # Find the shared node
-        shared_nodes = [v for v in data["nodes"].values() if v["name"] == "shared"]
-        assert len(shared_nodes) == 1
-        assert shared_nodes[0]["enabled"] is True
+        shared = [c for c in data["charts"] if c["name"] == "shared"]
+        assert len(shared) == 1
+        assert shared[0]["status"] == "on"
 
     def test_summary_counts_deduplicated(self) -> None:
         graph = self._make_diamond_graph()

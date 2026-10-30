@@ -94,7 +94,21 @@ Aliases and library types are shown inline. Children are grouped on first, then 
 
 ### json
 
-Structured representation of nodes and edges. Each node includes its name, version, alias, chart type, conditions, tags, and effective enabled status.
+Two flat lists:
+
+- `occurrences` — one entry per place a chart appears, in tree order: `path`, `chart`, `alias`, `version`, `repository`, `type`, `conditions`, `tags`, and the occurrence `status` (`"on"`/`"off"`).
+- `charts` — one entry per distinct chart (by name): `name`, `versions` (all versions pinned across its occurrences), `type`, and the chart `status`.
+
+```json
+{
+  "occurrences": [
+    {"path": "root/a/db", "chart": "postgresql", "alias": "db", "version": "15.1.0", "status": "off", ...}
+  ],
+  "charts": [
+    {"name": "postgresql", "versions": ["15.0.0", "15.1.0"], "type": null, "status": "on"}
+  ]
+}
+```
 
 ### dot
 

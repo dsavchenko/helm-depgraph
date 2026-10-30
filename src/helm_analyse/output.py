@@ -97,55 +97,46 @@ def format_json(
     graph: DependencyGraph,
     hide_libraries: bool = True,
 ) -> str:
-    """Format graph as JSON.
+    """Format graph as JSON with an ``occurrences`` list and a ``charts`` list.
+
+    Occurrences are in tree pre-order and carry the occurrence status; charts
+    are in order of first appearance and carry the chart status.
 
     Args:
-        graph: The dependency graph.
+        graph: The evaluated dependency graph.
         hide_libraries: If True, exclude library charts from output.
 
     Returns:
         JSON string.
     """
+    visible = _filter_libraries(graph.occurrences) if hide_libraries else graph.occurrences
 
-    def _node_to_dict(node: Occurrence) -> dict[str, Any]:
-        children = {
-            k: _node_to_dict(v)
-            for k, v in node.children.items()
-            if not (hide_libraries and _is_library(v))
-        }
-        return {
-            "name": node.name,
-            "version": node.version,
+    occurrences = [
+        {
+            "path": path,
+            "chart": node.name,
             "alias": node.alias,
+            "version": node.version,
             "repository": node.repository,
-            "chart_type": node.chart_type,
+            "type": node.chart_type,
             "conditions": node.conditions,
             "tags": node.tags,
-            "enabled": chart_status(graph, node.name),
-            "children": children,
+            "status": _status_word(node.enabled),
         }
+        for path, node in visible.items()
+    ]
 
-    visible_nodes = _filter_libraries(graph.occurrences) if hide_libraries else graph.occurrences
-    # Deduplicate nodes by chart name, using chart status
-    seen_keys: set[str] = set()
-    nodes_dict: dict[str, dict[str, Any]] = {}
-    for path, node in visible_nodes.items():
-        if node.name in seen_keys:
-            continue
-        seen_keys.add(node.name)
-        nodes_dict[path] = {
-            "name": node.name,
-            "version": node.version,
-            "alias": node.alias,
-            "chart_type": node.chart_type,
-            "enabled": chart_status(graph, node.name),
-        }
-    data = {
-        "root": _node_to_dict(graph.root),
-        "nodes": nodes_dict,
-    }
+    charts: dict[str, dict[str, Any]] = {}
+    for node in visible.values():
+        if node.name not in charts:
+            charts[node.name] = {
+                "name": node.name,
+                "versions": graph.chart_versions(node.name),
+                "type": node.chart_type,
+                "status": _status_word(chart_status(graph, node.name)),
+            }
 
-    return json.dumps(data, indent=2)
+    return json.dumps({"occurrences": occurrences, "charts": list(charts.values())}, indent=2)
 
 
 def format_dot(
@@ -223,8 +214,13 @@ def format_dot(
     return "\n".join(lines)
 
 
-def _status_str(enabled: bool | None) -> str:
-    """Convert an occurrence status to its display string."""
+def _status_word(enabled: bool | None) -> str:
+    """Convert a status to ``on``/``off``."""
     if enabled is None:
         raise ValueError("Graph has not been evaluated: occurrence status is unset")
-    return "[on]" if enabled else "[off]"
+    return "on" if enabled else "off"
+
+
+def _status_str(enabled: bool | None) -> str:
+    """Convert a status to its text-tree display string."""
+    return f"[{_status_word(enabled)}]"
