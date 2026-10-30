@@ -32,24 +32,20 @@ def _resolve_path(path: str, values: dict[str, Any]) -> Any:
 
 def evaluate_conditions(
     graph: DependencyGraph,
-    values: dict[str, Any],
-    computed_values: dict[str, Any] | None = None,
+    computed_values: dict[str, Any],
 ) -> None:
-    """Evaluate all conditions in the graph against the given values.
+    """Evaluate all conditions in the graph against the computed values.
 
     Per Helm spec:
-    - Conditions override tags when the condition path exists
-    - Tags are evaluated as OR (any tag true = enabled)
-    - Charts without conditions or tags default to enabled
+    - The first condition path holding a boolean decides; it overrides tags
+    - Any true tag enables; otherwise any false tag disables; unset tags have no effect
+    - Charts without a decisive condition or tag default to enabled
     - Library charts are evaluated like any other chart
 
     Args:
         graph: The dependency graph to evaluate.
-        values: The values dict to evaluate conditions against (fallback).
         computed_values: Fully merged values from ``helm install --dry-run --debug``.
-            When provided, used instead of *values* for condition resolution.
     """
-    eval_values = computed_values if computed_values is not None else values
 
     for path, node in graph.nodes.items():
         if node.key == graph.root.key:
@@ -61,7 +57,7 @@ def evaluate_conditions(
         # so condition "dex.enabled" resolves to "wms.diracx.dex.enabled".
         parts = path.split("/")
         prefix = ".".join(parts[1:-1])  # exclude root and self
-        _evaluate_node(node, eval_values, prefix)
+        _evaluate_node(node, computed_values, prefix)
 
     _propagate_disabled(graph)
 

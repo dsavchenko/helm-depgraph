@@ -3,8 +3,13 @@
 import tarfile
 from pathlib import Path
 
+import pytest
+from click.testing import CliRunner
+
+from helm_analyse.cli import main
 from helm_analyse.graph import (
     ChartNode,
+    ComputedValuesError,
     DependencyGraph,
     _parse_computed_values,
     _parse_dependency,
@@ -388,10 +393,20 @@ class TestParseComputedValues:
         result = _parse_computed_values(output)
         assert result == {}
 
-    def test_missing_computed_values(self) -> None:
+    def test_missing_computed_values_raises(self) -> None:
         output = "NAME: test\nHOOKS:\n"
-        result = _parse_computed_values(output)
-        assert result == {}
+        with pytest.raises(ComputedValuesError, match="No COMPUTED VALUES"):
+            _parse_computed_values(output)
+
+    def test_invalid_yaml_raises(self) -> None:
+        output = "COMPUTED VALUES:\na: [unclosed\n\nHOOKS:\n"
+        with pytest.raises(ComputedValuesError, match="Cannot parse"):
+            _parse_computed_values(output)
+
+    def test_non_mapping_raises(self) -> None:
+        output = "COMPUTED VALUES:\n- a\n- b\n\nHOOKS:\n"
+        with pytest.raises(ComputedValuesError, match="not a mapping"):
+            _parse_computed_values(output)
 
     def test_manifest_without_hooks_section(self) -> None:
         output = "NAME: test\nCOMPUTED VALUES:\na: 1\n\nMANIFEST:\n---\n"
@@ -434,8 +449,9 @@ class TestParseComputedValues:
         assert result["parent-a"]["shared"]["enabled"] is True
         assert result["parent-b"]["shared"]["enabled"] is False
 
-    def test_empty_string(self) -> None:
-        assert _parse_computed_values("") == {}
+    def test_empty_string_raises(self) -> None:
+        with pytest.raises(ComputedValuesError):
+            _parse_computed_values("")
 
 
 class TestGetComputedValues:
@@ -483,3 +499,20 @@ class TestGetComputedValues:
         values_file.write_text("global:\n  env: production\n")
         result = get_computed_values(self.FIXTURE, values_file=values_file)
         assert result["global"]["env"] == "production"
+
+    def test_helm_failure_raises(self) -> None:
+        from helm_analyse.graph import get_computed_values
+
+        with pytest.raises(ComputedValuesError, match="exit 1"):
+            get_computed_values(self.FIXTURE, helm_bin="false")
+
+    def test_missing_helm_binary_raises(self) -> None:
+        from helm_analyse.graph import get_computed_values
+
+        with pytest.raises(ComputedValuesError, match="not found"):
+            get_computed_values(self.FIXTURE, helm_bin="/nonexistent/helm")
+
+    def test_cli_exits_nonzero_when_helm_fails(self) -> None:
+        result = CliRunner().invoke(main, ["build", str(self.FIXTURE), "--helm-bin", "false"])
+        assert result.exit_code == 1
+        assert "helm install --dry-run failed" in result.output

@@ -113,12 +113,12 @@ The DOT header includes `ranksep` and `nodesep`, which control the vertical spac
 
 ## How conditions are evaluated
 
-Helm conditions are comma-separated paths; the **first valid path wins**. Tags are evaluated as *OR* (any tag true enables the dependency), and conditions override tags. Because condition paths are relative to the parent's values scope, `helm-analyse` merges each parent's block with the root merged values (obtained via `helm install --dry-run=client --debug`, parsed from the `COMPUTED VALUES:` block) to correctly resolve grandparent and diamond cases.
+Helm conditions are comma-separated paths; the **first path holding a boolean wins**, and missing or non-boolean paths are skipped (with a warning for non-boolean values). Tags: any tag `true` enables the dependency; otherwise any tag `false` disables it; unset tags have no effect. A decisive condition overrides tags. Library charts are evaluated like any other chart. Because condition paths are relative to the parent's values scope, `helm-analyse` merges each parent's block with the root merged values (obtained via `helm install --dry-run=client --debug`, parsed from the `COMPUTED VALUES:` block) to correctly resolve grandparent and diamond cases. If helm fails or its output has no `COMPUTED VALUES:` block, `build` exits with an error showing helm's stderr.
 
 The two design-coupled entry points are:
 
-- `get_computed_values(chart_path, values_file=None)` — returns the parsed root-merged values.
-- `evaluate_conditions(graph, values, computed_values=None)` — applies conditions/tags to the graph.
+- `get_computed_values(chart_path, values_file=None)` — returns the parsed root-merged values; raises `ComputedValuesError` on failure.
+- `evaluate_conditions(graph, computed_values)` — applies conditions/tags to the graph.
 
 ## How the graph is built
 

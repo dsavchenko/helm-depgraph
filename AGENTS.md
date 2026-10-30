@@ -40,13 +40,14 @@ helm-analyse build <chart_path> [-f values.yaml] [--format text|json|dot] [--dup
 ## Helm-specific notes
 
 - Graph built by parsing `Chart.yaml` files from `charts/` directory (requires `helm dependency build` or local charts).
-- Condition paths are comma-separated; first valid path wins (per Helm spec).
-- Tags evaluated as OR (any tag true = enabled); conditions override tags.
+- Condition paths are comma-separated; the first path holding a boolean wins, missing/non-boolean paths are skipped (per Helm spec).
+- Tags: any tag `true` enables; otherwise any tag `false` disables; unset tags have no effect. A decisive condition overrides tags.
+- Library charts are evaluated like any other chart.
 - Chart `values.yaml` can contain Go templates — treat them as opaque strings unless rendering is required.
 - Merged values obtained via `helm install --dry-run=client --debug`; parse the `COMPUTED VALUES:` YAML block. Debug logs go to stderr, values to stdout.
-- Condition evaluation accepts a `computed_values` param (root-merged values from helm) used in place of raw root values; combined with the prefix rule (`prefix.condition_path`) it correctly resolves grandparent and diamond cases.
-- `get_computed_values(chart_path, values_file=None)` returns the parsed `COMPUTED VALUES:` block; CLI passes it to `evaluate_conditions()` via the `computed_values` keyword.
-- Edit `conditions.py`/`graph.py` in sync: `evaluate_conditions(graph, values, computed_values=None)` and `get_computed_values()` are design-coupled.
+- Computed values (root-merged values from helm) are the only evaluation input; combined with the prefix rule (`prefix.condition_path`) they resolve grandparent and diamond cases.
+- `get_computed_values(chart_path, values_file=None)` returns the parsed `COMPUTED VALUES:` block and raises `ComputedValuesError` (with helm's stderr) if helm fails or the block is missing/unparseable; the CLI turns that into a non-zero exit.
+- Edit `conditions.py`/`graph.py` in sync: `evaluate_conditions(graph, computed_values)` and `get_computed_values()` are design-coupled.
 
 ## Agent skills
 

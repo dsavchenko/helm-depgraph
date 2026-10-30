@@ -593,7 +593,7 @@ class TestComputedValuesIntegration:
 
         graph = build_graph(self.FIXTURE, use_helm_build=False)
         computed = get_computed_values(self.FIXTURE, values_file=values_file)
-        evaluate_conditions(graph, {}, computed_values=computed)
+        evaluate_conditions(graph, computed)
         return graph
 
     def test_shared_enabled_when_parent_a_enables(self) -> None:
@@ -638,5 +638,5 @@ class TestComputedValuesIntegration:
         values_file.write_text("grandparent:\n  parent-c:\n    child:\n      enabled: false\n")
         graph = build_graph(self.FIXTURE, use_helm_build=False)
         computed = get_computed_values(self.FIXTURE, values_file=values_file)
-        evaluate_conditions(graph, {}, computed_values=computed)
+        evaluate_conditions(graph, computed)
         assert graph.nodes["test-values-analysis/grandparent/parent-c/child"].enabled is False

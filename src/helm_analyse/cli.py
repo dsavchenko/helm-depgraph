@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import click
-import yaml
 
 from helm_analyse.conditions import evaluate_conditions
-from helm_analyse.graph import build_graph, build_graph_from_helm_show, get_computed_values
+from helm_analyse.graph import (
+    ComputedValuesError,
+    build_graph,
+    build_graph_from_helm_show,
+    get_computed_values,
+)
 from helm_analyse.output import format_dot, format_json, format_text
 
 
@@ -58,14 +61,12 @@ def build(
     else:
         graph = build_graph(chart_path, helm_bin=helm_bin)
 
-    # Evaluate conditions
-    values: dict[str, Any] = {}
-    if values_file:
-        with open(values_file) as f:
-            values = yaml.safe_load(f) or {}
-
-    computed = get_computed_values(chart_path, values_file, helm_bin=helm_bin)
-    evaluate_conditions(graph, values, computed_values=computed)
+    # Evaluate conditions against helm's computed values (values file applied by helm)
+    try:
+        computed = get_computed_values(chart_path, values_file, helm_bin=helm_bin)
+    except ComputedValuesError as e:
+        raise click.ClickException(str(e)) from e
+    evaluate_conditions(graph, computed)
 
     # Output
     if output_format == "text":

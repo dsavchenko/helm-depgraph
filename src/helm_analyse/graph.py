@@ -287,6 +287,11 @@ def _resolve_children_from_helm_show(
 # Computed values via `helm install --dry-run --debug`
 # ---------------------------------------------------------------------------
 
+
+class ComputedValuesError(Exception):
+    """Raised when helm cannot produce the computed values for a chart."""
+
+
 _COMPUTED_VALUES_RE = re.compile(
     r"^COMPUTED VALUES:\s*\n(.*?)(?=^HOOKS:|^MANIFEST:|\Z)",
     re.MULTILINE | re.DOTALL,
@@ -297,17 +302,25 @@ def _parse_computed_values(helm_output: str) -> dict[str, Any]:
     """Extract the COMPUTED VALUES YAML block from ``helm install --debug`` output.
 
     Returns:
-        The parsed values dict, or an empty dict if the section is missing/empty.
+        The parsed values dict; an empty dict if the chart has no values.
+
+    Raises:
+        ComputedValuesError: If the section is missing or is not a YAML mapping.
     """
     match = _COMPUTED_VALUES_RE.search(helm_output)
     if match is None:
-        return {}
+        raise ComputedValuesError("No COMPUTED VALUES section in helm output")
     raw = match.group(1).strip()
     if not raw or raw in ("{}", "null"):
         return {}
-    result = yaml.safe_load(raw)
-    if result is None or not isinstance(result, dict):
+    try:
+        result = yaml.safe_load(raw)
+    except yaml.YAMLError as e:
+        raise ComputedValuesError(f"Cannot parse COMPUTED VALUES: {e}") from e
+    if result is None:
         return {}
+    if not isinstance(result, dict):
+        raise ComputedValuesError("COMPUTED VALUES is not a mapping")
     return cast(dict[str, Any], result)
 
 
@@ -323,7 +336,7 @@ def get_computed_values(
     truth for condition evaluation.
 
     Raises:
-        subprocess.CalledProcessError: If the helm command fails.
+        ComputedValuesError: If helm fails or its output has no usable values.
     """
     args = [
         "install",
@@ -337,11 +350,18 @@ def get_computed_values(
     if values_file is not None:
         args.extend(["-f", str(values_file)])
 
-    result = subprocess.run(
-        [helm_bin, *args],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
+    try:
+        result = subprocess.run(
+            [helm_bin, *args],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except FileNotFoundError as e:
+        raise ComputedValuesError(f"helm binary not found: {helm_bin}") from e
+    except subprocess.CalledProcessError as e:
+        raise ComputedValuesError(
+            f"helm install --dry-run failed (exit {e.returncode}):\n{e.stderr.strip()}"
+        ) from e
     # COMPUTED VALUES is on stdout; debug logs are on stderr.
     return _parse_computed_values(result.stdout)
