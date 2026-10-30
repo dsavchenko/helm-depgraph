@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from helm_analyse.conditions import effective_enabled
+from helm_analyse.conditions import chart_status
 from helm_analyse.graph import DependencyGraph, Occurrence
 
 
@@ -44,7 +44,7 @@ def format_text(
         if hide_libraries and _is_library(node):
             return
 
-        eff = effective_enabled(graph, node.name)
+        eff = chart_status(graph, node.name)
         connector = "└── " if is_last else "├── "
         status = _status_str(eff)
         alias_str = f" (alias: {node.alias})" if node.alias else ""
@@ -59,8 +59,8 @@ def format_text(
         children = list(node.children.values())
         child_prefix = prefix + ("    " if is_last else "│   ")
 
-        enabled = [c for c in children if effective_enabled(graph, c.name) is True]
-        other = [c for c in children if effective_enabled(graph, c.name) is not True]
+        enabled = [c for c in children if chart_status(graph, c.name) is True]
+        other = [c for c in children if chart_status(graph, c.name) is not True]
 
         for i, child in enumerate(enabled):
             _walk(child, child_prefix, i == len(enabled) - 1 and not other)
@@ -86,7 +86,7 @@ def format_text(
         if node.name in seen_keys:
             continue
         seen_keys.add(node.name)
-        eff = effective_enabled(graph, node.name)
+        eff = chart_status(graph, node.name)
         if eff is True:
             enabled_count += 1
         elif eff is False:
@@ -133,12 +133,12 @@ def format_json(
             "chart_type": node.chart_type,
             "conditions": node.conditions,
             "tags": node.tags,
-            "enabled": effective_enabled(graph, node.name),
+            "enabled": chart_status(graph, node.name),
             "children": children,
         }
 
     visible_nodes = _filter_libraries(graph.occurrences) if hide_libraries else graph.occurrences
-    # Deduplicate nodes by chart name, using effective enabled state
+    # Deduplicate nodes by chart name, using chart status
     seen_keys: set[str] = set()
     nodes_dict: dict[str, dict[str, Any]] = {}
     for path, node in visible_nodes.items():
@@ -150,7 +150,7 @@ def format_json(
             "version": node.version,
             "alias": node.alias,
             "chart_type": node.chart_type,
-            "enabled": effective_enabled(graph, node.name),
+            "enabled": chart_status(graph, node.name),
         }
     data = {
         "root": _node_to_dict(graph.root),
@@ -197,7 +197,7 @@ def format_dot(
             return
         seen.add(node.name)
 
-        eff = effective_enabled(graph, node.name)
+        eff = chart_status(graph, node.name)
 
         label = f"{node.name}\\n{node.version}"
         if node.alias:

@@ -143,7 +143,7 @@ uv run ruff format . && uv run ruff check . && uv run mypy . && uv run pytest te
 Run a single test:
 
 ```bash
-uv run pytest tests/test_conditions.py::TestEffectiveEnabled::test_diamond_child_disabled_when_enabled_path_condition_false -v
+uv run pytest tests/test_conditions.py::TestChartStatus::test_diamond_child_disabled_when_enabled_path_condition_false -v
 ```
 
 ### Project layout

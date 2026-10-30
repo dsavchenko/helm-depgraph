@@ -8,7 +8,7 @@ import pytest
 from helm_analyse.conditions import (
     _propagate_disabled,
     _resolve_path,
-    effective_enabled,
+    chart_status,
     evaluate_conditions,
 )
 from helm_analyse.graph import DependencyGraph, Occurrence
@@ -214,14 +214,13 @@ class TestPropagateDisabled:
         assert graph.occurrences["root/a/b"].enabled is False
         assert graph.occurrences["root/a/b/c"].enabled is False
 
-    def test_diamond_preserves_enabled(self) -> None:
-        """root -> A(disabled) -> C, root -> B(enabled) -> C => C stays enabled."""
+    def test_diamond_occurrence_under_disabled_parent_is_off(self) -> None:
+        """root -> A(off) -> C, root -> B(on) -> C => C off under A, on under B."""
         root = Occurrence(name="root", version="1.0.0")
         a = Occurrence(name="a", version="1.0.0", conditions=["a.enabled"])
         b = Occurrence(name="b", version="1.0.0", conditions=["b.enabled"])
-        c = Occurrence(name="c", version="1.0.0")
-        a.children["c"] = c
-        b.children["c"] = c
+        a.children["c"] = Occurrence(name="c", version="1.0.0")
+        b.children["c"] = Occurrence(name="c", version="1.0.0")
         root.children["a"] = a
         root.children["b"] = b
         graph = DependencyGraph(root=root)
@@ -230,18 +229,18 @@ class TestPropagateDisabled:
         evaluate_conditions(graph, {"a": {"enabled": False}, "b": {"enabled": True}})
         assert graph.occurrences["root/a"].enabled is False
         assert graph.occurrences["root/b"].enabled is True
-        # C under A: also exists at root/b/c where root and b are enabled => not force-disabled
-        assert graph.occurrences["root/a/c"].enabled is True
+        # No cross-path rescue: each occurrence renders independently (ADR 0001)
+        assert graph.occurrences["root/a/c"].enabled is False
         assert graph.occurrences["root/b/c"].enabled is True
+        assert chart_status(graph, "c") is True
 
     def test_all_paths_disabled(self) -> None:
         """root -> A(disabled) -> C, root -> B(disabled) -> C => C disabled."""
         root = Occurrence(name="root", version="1.0.0")
         a = Occurrence(name="a", version="1.0.0", conditions=["a.enabled"])
         b = Occurrence(name="b", version="1.0.0", conditions=["b.enabled"])
-        c = Occurrence(name="c", version="1.0.0")
-        a.children["c"] = c
-        b.children["c"] = c
+        a.children["c"] = Occurrence(name="c", version="1.0.0")
+        b.children["c"] = Occurrence(name="c", version="1.0.0")
         root.children["a"] = a
         root.children["b"] = b
         graph = DependencyGraph(root=root)
@@ -253,8 +252,8 @@ class TestPropagateDisabled:
         assert graph.occurrences["root/a/c"].enabled is False
         assert graph.occurrences["root/b/c"].enabled is False
 
-    def test_keeps_via_path_with_enabled_node(self) -> None:
-        """Child stays enabled when an alternative path has an enabled node."""
+    def test_off_under_disabled_parent_while_on_elsewhere(self) -> None:
+        """Occurrence under a disabled parent is off; the chart is on via another path."""
         root = Occurrence(name="root", version="1.0.0", enabled=True)
         a = Occurrence(name="a", version="1.0.0", enabled=False)
         b = Occurrence(name="b", version="1.0.0", enabled=True)
@@ -270,10 +269,10 @@ class TestPropagateDisabled:
         _propagate_disabled(graph)
         assert graph.occurrences["root/a/shared"].enabled is False
         assert graph.occurrences["root/b/shared"].enabled is True
-        assert effective_enabled(graph, "shared") is True
+        assert chart_status(graph, "shared") is True
 
-    def test_disables_via_path_with_disabled_node(self) -> None:
-        """Child is disabled when the alternative path node itself is disabled."""
+    def test_on_occurrence_under_disabled_parent_is_off(self) -> None:
+        """An occurrence that is on by itself is off when its parent is off."""
         root = Occurrence(name="root", version="1.0.0", enabled=True)
         a = Occurrence(name="a", version="1.0.0", enabled=True)
         b = Occurrence(name="b", version="1.0.0", enabled=False)
@@ -289,18 +288,17 @@ class TestPropagateDisabled:
         _propagate_disabled(graph)
         assert graph.occurrences["root/a/shared"].enabled is False
         assert graph.occurrences["root/b/shared"].enabled is False
-        assert effective_enabled(graph, "shared") is False
+        assert chart_status(graph, "shared") is False
 
-    def test_intermediate_disabled_preserves_sibling_path(self) -> None:
-        """root -> A(disabled) -> B -> C, root -> D(enabled) -> C => C enabled."""
+    def test_intermediate_disabled_does_not_affect_sibling_path(self) -> None:
+        """root -> A(off) -> B -> C, root -> D(on) -> C => C off under A/B, on under D."""
         root = Occurrence(name="root", version="1.0.0")
         a = Occurrence(name="a", version="1.0.0", conditions=["a.enabled"])
         b = Occurrence(name="b", version="1.0.0")
-        c = Occurrence(name="c", version="1.0.0")
         d = Occurrence(name="d", version="1.0.0", conditions=["d.enabled"])
         a.children["b"] = b
-        b.children["c"] = c
-        d.children["c"] = c
+        b.children["c"] = Occurrence(name="c", version="1.0.0")
+        d.children["c"] = Occurrence(name="c", version="1.0.0")
         root.children["a"] = a
         root.children["d"] = d
         graph = DependencyGraph(root=root)
@@ -309,8 +307,9 @@ class TestPropagateDisabled:
         evaluate_conditions(graph, {"a": {"enabled": False}, "d": {"enabled": True}})
         assert graph.occurrences["root/a"].enabled is False
         assert graph.occurrences["root/a/b"].enabled is False
-        # C under A/B also at root/d/c where root and d are enabled => not force-disabled
-        assert graph.occurrences["root/a/b/c"].enabled is True
+        assert graph.occurrences["root/a/b/c"].enabled is False
+        assert graph.occurrences["root/d/c"].enabled is True
+        assert chart_status(graph, "c") is True
 
     def test_library_disabled_under_disabled_parent(self) -> None:
         """Library charts are disabled by propagation like any other chart."""
@@ -485,8 +484,8 @@ class TestConditionPathResolution:
         assert graph.occurrences["dpps/wms/diracx/jaeger/cassandra"].enabled is False
 
 
-class TestEffectiveEnabled:
-    """Tests for effective_enabled helper."""
+class TestChartStatus:
+    """Tests for chart_status helper."""
 
     def test_chart_identified_by_name_not_alias(self) -> None:
         root = Occurrence(name="root", version="1.0.0")
@@ -496,8 +495,8 @@ class TestEffectiveEnabled:
         root.children["db-audit"] = audit
         graph = DependencyGraph(root=root)
         graph.flatten()
-        assert effective_enabled(graph, "postgresql") is True
-        assert effective_enabled(graph, "db-main") is None
+        assert chart_status(graph, "postgresql") is True
+        assert chart_status(graph, "db-main") is None
 
     def test_single_path_enabled(self) -> None:
         root = Occurrence(name="root", version="1.0.0")
@@ -505,7 +504,7 @@ class TestEffectiveEnabled:
         root.children["sub"] = sub
         graph = DependencyGraph(root=root)
         graph.flatten()
-        assert effective_enabled(graph, "sub") is True
+        assert chart_status(graph, "sub") is True
 
     def test_single_path_disabled(self) -> None:
         root = Occurrence(name="root", version="1.0.0")
@@ -513,7 +512,7 @@ class TestEffectiveEnabled:
         root.children["sub"] = sub
         graph = DependencyGraph(root=root)
         graph.flatten()
-        assert effective_enabled(graph, "sub") is False
+        assert chart_status(graph, "sub") is False
 
     def test_single_path_unknown(self) -> None:
         root = Occurrence(name="root", version="1.0.0")
@@ -521,10 +520,10 @@ class TestEffectiveEnabled:
         root.children["sub"] = sub
         graph = DependencyGraph(root=root)
         graph.flatten()
-        assert effective_enabled(graph, "sub") is None
+        assert chart_status(graph, "sub") is None
 
     def test_diamond_one_enabled(self) -> None:
-        """Chart at two paths, one enabled one disabled => effective True."""
+        """Chart at two paths, one enabled one disabled => chart status on."""
         root = Occurrence(name="root", version="1.0.0")
         a = Occurrence(name="a", version="1.0.0", enabled=False)
         b = Occurrence(name="b", version="1.0.0", enabled=True)
@@ -536,7 +535,7 @@ class TestEffectiveEnabled:
         root.children["b"] = b
         graph = DependencyGraph(root=root)
         graph.flatten()
-        assert effective_enabled(graph, "shared") is True
+        assert chart_status(graph, "shared") is True
 
     def test_diamond_both_disabled(self) -> None:
         root = Occurrence(name="root", version="1.0.0")
@@ -550,7 +549,7 @@ class TestEffectiveEnabled:
         root.children["b"] = b
         graph = DependencyGraph(root=root)
         graph.flatten()
-        assert effective_enabled(graph, "shared") is False
+        assert chart_status(graph, "shared") is False
 
     def test_diamond_child_disabled_when_enabled_path_condition_false(self) -> None:
         """Enabled parent has child condition false; disabled parent has it true.
@@ -581,16 +580,16 @@ class TestEffectiveEnabled:
         assert graph.occurrences["root/a/shared"].enabled is False
         # Regression: previously this stayed True (wrongly shown as enabled)
         assert graph.occurrences["root/b/shared"].enabled is False
-        assert effective_enabled(graph, "shared") is False
+        assert chart_status(graph, "shared") is False
 
     def test_not_found_returns_none(self) -> None:
         root = Occurrence(name="root", version="1.0.0")
         graph = DependencyGraph(root=root)
         graph.flatten()
-        assert effective_enabled(graph, "nonexistent") is None
+        assert chart_status(graph, "nonexistent") is None
 
     def test_real_scenario_minio_diamond(self) -> None:
-        """minio under disabled loki AND enabled diracx => effective True."""
+        """minio under disabled loki AND enabled diracx => chart status on."""
         root = Occurrence(name="dpps", version="0.0.0-dev")
         loki = Occurrence(name="loki", version="6.30.1", enabled=False)
         wms = Occurrence(name="wms", version="v0.9.0-rc3", enabled=True)
@@ -604,7 +603,7 @@ class TestEffectiveEnabled:
         root.children["wms"] = wms
         graph = DependencyGraph(root=root)
         graph.flatten()
-        assert effective_enabled(graph, "minio") is True
+        assert chart_status(graph, "minio") is True
 
 
 class TestComputedValuesIntegration:
@@ -650,10 +649,12 @@ class TestComputedValuesIntegration:
         graph = self._build_and_evaluate()
         assert graph.occurrences["test-values-analysis/library-parent"].enabled is True
 
-    def test_effective_enabled_diamond(self) -> None:
-        """shared at two paths: parent-a enables, parent-b disables => effective True."""
+    def test_chart_status_diamond(self) -> None:
+        """shared at two paths: parent-a enables, parent-b disables => chart status on."""
         graph = self._build_and_evaluate()
-        assert effective_enabled(graph, "shared") is True
+        assert graph.occurrences["test-values-analysis/parent-a/shared"].enabled is True
+        assert graph.occurrences["test-values-analysis/parent-b/shared"].enabled is False
+        assert chart_status(graph, "shared") is True
 
     def test_with_values_file_override(self, tmp_path: Path) -> None:
         """Values file override changes computed values."""

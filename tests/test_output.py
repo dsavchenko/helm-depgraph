@@ -395,7 +395,7 @@ class TestMultiPathEnabled:
     def test_summary_counts_deduplicated(self) -> None:
         graph = self._make_diamond_graph()
         text = format_text(graph)
-        # root=enabled, a=disabled, b=enabled, shared=effective_enabled=True
+        # root=enabled, a=disabled, b=enabled, shared=chart_status=True
         # So: 3 enabled (root, b, shared), 1 disabled (a), 0 unknown
         assert "3 enabled, 1 disabled, 0 unknown" in text
 
