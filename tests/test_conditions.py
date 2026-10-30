@@ -149,7 +149,7 @@ class TestEvaluateConditions:
         evaluate_conditions(graph, {})
         assert graph.nodes["root/subchart"].enabled is True
 
-    def test_library_chart_not_evaluated(self) -> None:
+    def test_library_chart_condition_evaluated(self) -> None:
         root = ChartNode(name="root", version="1.0.0")
         lib = ChartNode(
             name="common",
@@ -162,10 +162,9 @@ class TestEvaluateConditions:
         graph.flatten()
 
         evaluate_conditions(graph, {"common": {"enabled": False}})
-        # Library charts are not evaluated, so enabled remains None
-        assert graph.nodes["root/common"].enabled is None
+        assert graph.nodes["root/common"].enabled is False
 
-    def test_library_chart_without_condition_not_evaluated(self) -> None:
+    def test_library_chart_without_condition_defaults_enabled(self) -> None:
         root = ChartNode(name="root", version="1.0.0")
         lib = ChartNode(
             name="common",
@@ -177,8 +176,7 @@ class TestEvaluateConditions:
         graph.flatten()
 
         evaluate_conditions(graph, {})
-        # Library charts are not evaluated, so enabled remains None
-        assert graph.nodes["root/common"].enabled is None
+        assert graph.nodes["root/common"].enabled is True
 
 
 class TestPropagateDisabled:
@@ -300,8 +298,8 @@ class TestPropagateDisabled:
         # C under A/B also at root/d/c where root and d are enabled => not force-disabled
         assert graph.nodes["root/a/b/c"].enabled is True
 
-    def test_library_not_force_disabled(self) -> None:
-        """Library charts are not affected by propagation."""
+    def test_library_disabled_under_disabled_parent(self) -> None:
+        """Library charts are disabled by propagation like any other chart."""
         root = ChartNode(name="root", version="1.0.0")
         a = ChartNode(name="a", version="1.0.0", conditions=["a.enabled"])
         lib = ChartNode(name="common", version="1.0.0", chart_type="library")
@@ -312,7 +310,7 @@ class TestPropagateDisabled:
 
         evaluate_conditions(graph, {"a": {"enabled": False}})
         assert graph.nodes["root/a"].enabled is False
-        assert graph.nodes["root/a/common"].enabled is None
+        assert graph.nodes["root/a/common"].enabled is False
 
     def test_own_condition_overridden_when_disabled_parent(self) -> None:
         """Descendant's own condition is overridden when all parent paths disabled."""
@@ -616,11 +614,11 @@ class TestComputedValuesIntegration:
         assert graph.nodes["test-values-analysis/level1/level2/level3"].enabled is True
         assert graph.nodes["test-values-analysis/level1/level2/level3/level4"].enabled is True
 
-    def test_library_chart_not_evaluated(self) -> None:
-        """Library charts are not evaluated."""
+    def test_library_chart_evaluated(self) -> None:
+        """Library charts are evaluated like any other chart."""
         graph = self._build_and_evaluate()
         lib_node = graph.nodes["test-values-analysis/library-parent/lib-chart"]
-        assert lib_node.enabled is None
+        assert lib_node.enabled is True
 
     def test_library_parent_enabled(self) -> None:
         """library-parent (non-library) is evaluated normally."""

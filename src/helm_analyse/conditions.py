@@ -41,7 +41,7 @@ def evaluate_conditions(
     - Conditions override tags when the condition path exists
     - Tags are evaluated as OR (any tag true = enabled)
     - Charts without conditions or tags default to enabled
-    - Library charts are not evaluated (they provide templates only)
+    - Library charts are evaluated like any other chart
 
     Args:
         graph: The dependency graph to evaluate.
@@ -54,10 +54,6 @@ def evaluate_conditions(
     for path, node in graph.nodes.items():
         if node.key == graph.root.key:
             node.enabled = True
-            continue
-
-        # Library charts are not independently activatable
-        if node.chart_type == "library":
             continue
 
         # Compute the values prefix: the node's namespace in root values.
@@ -89,8 +85,6 @@ def _propagate_disabled(graph: DependencyGraph) -> None:
         prefix = path + "/"
         for desc_path, desc_node in list(graph.nodes.items()):
             if not desc_path.startswith(prefix):
-                continue
-            if desc_node.chart_type == "library":
                 continue
 
             # Check if same chart appears on another fully-enabled path
