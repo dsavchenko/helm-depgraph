@@ -24,14 +24,15 @@ def format_text(
     show_duplicates: bool = False,
     hide_libraries: bool = True,
 ) -> str:
-    """Format graph as a human-readable text tree.
+    """Format graph as a human-readable occurrence tree.
 
-    Children are grouped by enabled status: enabled first, then a blank
-    line separator, then disabled/unknown.
+    Each line shows the occurrence status. Children are grouped on first,
+    then a blank line separator, then off. The summary line counts charts
+    by chart status.
 
     Args:
-        graph: The dependency graph.
-        show_duplicates: If False, deduplicate nodes by name.
+        graph: The evaluated dependency graph.
+        show_duplicates: If False, collapse the subtree of a chart already shown.
         hide_libraries: If True, exclude library charts from output.
 
     Returns:
@@ -44,61 +45,48 @@ def format_text(
         if hide_libraries and _is_library(node):
             return
 
-        eff = chart_status(graph, node.name)
         connector = "└── " if is_last else "├── "
-        status = _status_str(eff)
+        status = _status_str(node.enabled)
         alias_str = f" (alias: {node.alias})" if node.alias else ""
         type_str = " (library)" if _is_library(node) else ""
         lines.append(f"{prefix}{connector}{node.name}-{node.version}{alias_str}{type_str} {status}")
 
+        child_prefix = prefix + ("    " if is_last else "│   ")
+        children = [c for c in node.children.values() if not (hide_libraries and _is_library(c))]
+
         if not show_duplicates and node.name in seen:
-            lines.append(f"{prefix}{'    ' if is_last else '│   '}[deduplicated]")
+            if children:
+                lines.append(f"{child_prefix}[deduplicated]")
             return
         seen.add(node.name)
 
-        children = list(node.children.values())
-        child_prefix = prefix + ("    " if is_last else "│   ")
+        on = [c for c in children if c.enabled is True]
+        off = [c for c in children if c.enabled is not True]
 
-        enabled = [c for c in children if chart_status(graph, c.name) is True]
-        other = [c for c in children if chart_status(graph, c.name) is not True]
+        for i, child in enumerate(on):
+            _walk(child, child_prefix, i == len(on) - 1 and not off)
 
-        for i, child in enumerate(enabled):
-            _walk(child, child_prefix, i == len(enabled) - 1 and not other)
+        if on and off:
+            lines.append(f"{child_prefix}│   ")
 
-        if enabled and other:
-            lines.append(f"{child_prefix}{'    ' if not other else '│   '}")
-
-        for i, child in enumerate(other):
-            _walk(child, child_prefix, i == len(other) - 1)
+        for i, child in enumerate(off):
+            _walk(child, child_prefix, i == len(off) - 1)
 
     # Root node
     root_status = _status_str(graph.root.enabled)
     root_type = " (library)" if _is_library(graph.root) else ""
     lines.append(f"{graph.root.name}-{graph.root.version} (root){root_type} {root_status}")
 
-    # Summary
-    visible_nodes = _filter_libraries(graph.occurrences) if hide_libraries else graph.occurrences
-    seen_keys: set[str] = set()
-    enabled_count = 0
-    disabled_count = 0
-    unknown_count = 0
-    for node in visible_nodes.values():
-        if node.name in seen_keys:
-            continue
-        seen_keys.add(node.name)
-        eff = chart_status(graph, node.name)
-        if eff is True:
-            enabled_count += 1
-        elif eff is False:
-            disabled_count += 1
-        else:
-            unknown_count += 1
-    lines.append(f"  {enabled_count} enabled, {disabled_count} disabled, {unknown_count} unknown")
+    # Summary: distinct charts by chart status
+    visible = _filter_libraries(graph.occurrences) if hide_libraries else graph.occurrences
+    chart_names = {node.name for node in visible.values()}
+    on_count = sum(1 for name in chart_names if chart_status(graph, name) is True)
+    lines.append(f"  {on_count} on, {len(chart_names) - on_count} off")
     lines.append("")
 
     seen.add(graph.root.name)
 
-    children = list(graph.root.children.values())
+    children = [c for c in graph.root.children.values() if not (hide_libraries and _is_library(c))]
     for i, child in enumerate(children):
         _walk(child, "", i == len(children) - 1)
 
@@ -236,10 +224,7 @@ def format_dot(
 
 
 def _status_str(enabled: bool | None) -> str:
-    """Convert enabled status to display string."""
-    if enabled is True:
-        return "[active]"
-    elif enabled is False:
-        return "[inactive]"
-    else:
-        return "[unknown]"
+    """Convert an occurrence status to its display string."""
+    if enabled is None:
+        raise ValueError("Graph has not been evaluated: occurrence status is unset")
+    return "[on]" if enabled else "[off]"

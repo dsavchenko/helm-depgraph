@@ -1,5 +1,7 @@
 """Tests for output formatters."""
 
+import pytest
+
 from helm_analyse.graph import DependencyGraph, Occurrence
 from helm_analyse.output import format_dot, format_json, format_text
 
@@ -180,36 +182,48 @@ class TestFormatDot:
             )
         assert result.returncode == 0, f"dot failed: {result.stderr}"
 
+
+def _build_evaluated_graph() -> DependencyGraph:
+    """Build a test graph where every occurrence has a status."""
+    graph = _build_graph()
+    graph.occurrences["root/sub3"].enabled = False
+    return graph
+
+
+class TestFormatText:
     """Tests for text output format."""
 
     def test_root_has_status(self) -> None:
-        graph = _build_graph()
+        graph = _build_evaluated_graph()
         text = format_text(graph)
-        assert "root-1.0.0 (root) [active]" in text
+        assert "root-1.0.0 (root) [on]" in text
+
+    def test_occurrence_status_labels(self) -> None:
+        graph = _build_evaluated_graph()
+        text = format_text(graph)
+        assert "sub1-0.1.0 [on]" in text
+        assert "sub2-0.2.0 [off]" in text
 
     def test_summary_line(self) -> None:
-        graph = _build_graph()
+        graph = _build_evaluated_graph()
         text = format_text(graph)
-        assert "3 enabled, 1 disabled, 1 unknown" in text
+        assert "3 on, 2 off" in text
+
+    def test_unevaluated_graph_raises(self) -> None:
+        graph = _build_graph()
+        with pytest.raises(ValueError, match="not been evaluated"):
+            format_text(graph)
 
     def test_enabled_before_disabled(self) -> None:
-        graph = _build_graph()
+        graph = _build_evaluated_graph()
         text = format_text(graph)
         lines = text.split("\n")
         enabled_line = next(i for i, line in enumerate(lines) if "sub1-" in line)
         disabled_line = next(i for i, line in enumerate(lines) if "sub2-" in line)
         assert enabled_line < disabled_line
 
-    def test_unknown_last(self) -> None:
-        graph = _build_graph()
-        text = format_text(graph)
-        lines = text.split("\n")
-        disabled_line = next(i for i, line in enumerate(lines) if "sub2-" in line)
-        unknown_line = next(i for i, line in enumerate(lines) if "sub3-" in line)
-        assert disabled_line < unknown_line
-
     def test_blank_line_separator(self) -> None:
-        graph = _build_graph()
+        graph = _build_evaluated_graph()
         text = format_text(graph)
         lines = text.split("\n")
         # There should be an empty line between enabled and disabled groups
@@ -225,6 +239,33 @@ class TestFormatDot:
 
         text = format_text(graph)
         assert "(alias: custom)" in text
+
+    def test_duplicate_subtree_collapsed(self) -> None:
+        root = Occurrence(name="root", version="1.0.0", enabled=True)
+        for parent in ("a", "b"):
+            p = Occurrence(name=parent, version="1.0.0", enabled=True)
+            shared = Occurrence(name="shared", version="1.0.0", enabled=True)
+            shared.children["leaf"] = Occurrence(name="leaf", version="1.0.0", enabled=True)
+            p.children["shared"] = shared
+            root.children[parent] = p
+        graph = DependencyGraph(root=root)
+        graph.flatten()
+
+        text = format_text(graph)
+        assert text.count("leaf-1.0.0") == 1
+        assert text.count("[deduplicated]") == 1
+        assert format_text(graph, show_duplicates=True).count("leaf-1.0.0") == 2
+
+    def test_no_dedup_marker_for_repeated_leaf(self) -> None:
+        root = Occurrence(name="root", version="1.0.0", enabled=True)
+        for parent in ("a", "b"):
+            p = Occurrence(name=parent, version="1.0.0", enabled=True)
+            p.children["leaf"] = Occurrence(name="leaf", version="1.0.0", enabled=True)
+            root.children[parent] = p
+        graph = DependencyGraph(root=root)
+        graph.flatten()
+
+        assert "[deduplicated]" not in format_text(graph)
 
 
 class TestFormatJson:
@@ -290,7 +331,7 @@ class TestLibraryCharts:
 
     def test_text_shows_libraries_when_not_hidden(self) -> None:
         root = Occurrence(name="root", version="1.0.0", enabled=True)
-        lib = Occurrence(name="common", version="1.0.0", chart_type="library", enabled=None)
+        lib = Occurrence(name="common", version="1.0.0", chart_type="library", enabled=True)
         sub = Occurrence(name="sub", version="0.1.0", enabled=True)
         root.children["common"] = lib
         root.children["sub"] = sub
@@ -377,10 +418,11 @@ class TestMultiPathEnabled:
         else:
             raise AssertionError("shared node not found in DOT output")
 
-    def test_text_shows_enabled_when_any_path_enabled(self) -> None:
+    def test_text_shows_occurrence_status(self) -> None:
         graph = self._make_diamond_graph()
-        text = format_text(graph)
-        assert "shared-1.0.0 [active]" in text
+        text = format_text(graph, show_duplicates=True)
+        assert "shared-1.0.0 [off]" in text
+        assert "shared-1.0.0 [on]" in text
 
     def test_json_shows_enabled_when_any_path_enabled(self) -> None:
         import json
@@ -395,9 +437,8 @@ class TestMultiPathEnabled:
     def test_summary_counts_deduplicated(self) -> None:
         graph = self._make_diamond_graph()
         text = format_text(graph)
-        # root=enabled, a=disabled, b=enabled, shared=chart_status=True
-        # So: 3 enabled (root, b, shared), 1 disabled (a), 0 unknown
-        assert "3 enabled, 1 disabled, 0 unknown" in text
+        # Charts: root on, a off, b on, shared on (via b) => 3 on, 1 off
+        assert "3 on, 1 off" in text
 
     def test_edge_from_disabled_parent_dashed_when_enabled_via_other_path(self) -> None:
         """Edge from disabled parent to shared chart is dashed because it does not enable shared."""

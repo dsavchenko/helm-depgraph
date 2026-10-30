@@ -53,7 +53,7 @@ The `build` command resolves the dependency tree for the chart at `chart_path` a
 | ------ | ------- | ----------- |
 | `-f, --values <file>` | — | Values YAML file used during condition evaluation. |
 | `--format <text\|json\|dot>` | `text` | Output format. |
-| `--duplicates / --no-duplicates` | off | Show duplicate subcharts (same name from multiple parents). |
+| `--duplicates / --no-duplicates` | off | Expand the subtree of a chart every time it occurs, instead of only the first time (text output). |
 | `--hide-libraries / --show-libraries` | hide | Exclude library charts from output. |
 | `--helm-bin <path>` | `helm` | Path to the helm binary. |
 | `--helm-show / --helm-build` | `--helm-build` | Use `helm show` instead of `helm build` for the local chart graph. |
@@ -86,12 +86,11 @@ helm-analyse build ./mychart --format dot --ranksep 2.0 --nodesep 0.8 | dot -Tpn
 
 ### text
 
-A tree with each node annotated by its effective status:
+A tree of **occurrences** (one line per place a chart appears), each annotated with its occurrence status:
 
-- `[on]` / `[off]` — enabled / disabled after condition evaluation.
-- `[?]` — status not resolved.
+- `[on]` / `[off]` — whether Helm renders this occurrence. An occurrence under an `[off]` parent is always `[off]`, even if the same chart is `[on]` elsewhere.
 
-Aliases and library types are shown inline. Children are grouped by enabled status.
+Aliases and library types are shown inline. Children are grouped on first, then off. Without `--duplicates`, the subtree of a chart that was already shown is collapsed to `[deduplicated]`. The summary line counts distinct **charts** by chart status (a chart is on if any of its occurrences is on).
 
 ### json
 
