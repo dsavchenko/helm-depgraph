@@ -1,16 +1,16 @@
 """Tests for output formatters."""
 
-from helm_analyse.graph import ChartNode, DependencyGraph
+from helm_analyse.graph import DependencyGraph, Occurrence
 from helm_analyse.output import format_dot, format_json, format_text
 
 
 def _build_graph() -> DependencyGraph:
     """Build a test graph with mixed enabled states."""
-    root = ChartNode(name="root", version="1.0.0", enabled=True)
-    sub1 = ChartNode(name="sub1", version="0.1.0", enabled=True)
-    sub2 = ChartNode(name="sub2", version="0.2.0", enabled=False)
-    sub3 = ChartNode(name="sub3", version="0.3.0", enabled=None)
-    leaf = ChartNode(name="leaf", version="0.0.1", enabled=True)
+    root = Occurrence(name="root", version="1.0.0", enabled=True)
+    sub1 = Occurrence(name="sub1", version="0.1.0", enabled=True)
+    sub2 = Occurrence(name="sub2", version="0.2.0", enabled=False)
+    sub3 = Occurrence(name="sub3", version="0.3.0", enabled=None)
+    leaf = Occurrence(name="leaf", version="0.0.1", enabled=True)
     sub1.children["leaf"] = leaf
     root.children["sub1"] = sub1
     root.children["sub2"] = sub2
@@ -46,8 +46,8 @@ class TestFormatDot:
         assert "color=grey" in dot
 
     def test_alias_in_label(self) -> None:
-        root = ChartNode(name="root", version="1.0.0", enabled=True)
-        child = ChartNode(name="sub", version="0.1.0", alias="custom", enabled=True)
+        root = Occurrence(name="root", version="1.0.0", enabled=True)
+        child = Occurrence(name="sub", version="0.1.0", alias="custom", enabled=True)
         root.children["custom"] = child
         graph = DependencyGraph(root=root)
         graph.flatten()
@@ -98,8 +98,8 @@ class TestFormatDot:
         assert result.returncode == 0, f"dot failed: {result.stderr}"
 
     def test_enabled_edge_solid(self) -> None:
-        root = ChartNode(name="root", version="1.0.0", enabled=True)
-        sub = ChartNode(name="sub", version="0.1.0", enabled=True)
+        root = Occurrence(name="root", version="1.0.0", enabled=True)
+        sub = Occurrence(name="sub", version="0.1.0", enabled=True)
         root.children["sub"] = sub
         graph = DependencyGraph(root=root)
         graph.flatten()
@@ -113,8 +113,8 @@ class TestFormatDot:
             raise AssertionError("root -> sub edge not found")
 
     def test_disabled_edge_dashed(self) -> None:
-        root = ChartNode(name="root", version="1.0.0", enabled=True)
-        sub = ChartNode(name="sub", version="0.1.0", enabled=False)
+        root = Occurrence(name="root", version="1.0.0", enabled=True)
+        sub = Occurrence(name="sub", version="0.1.0", enabled=False)
         root.children["sub"] = sub
         graph = DependencyGraph(root=root)
         graph.flatten()
@@ -128,8 +128,8 @@ class TestFormatDot:
             raise AssertionError("root -> sub edge not found")
 
     def test_default_enabled_edge_solid(self) -> None:
-        root = ChartNode(name="root", version="1.0.0", enabled=True)
-        sub = ChartNode(name="sub", version="0.1.0")
+        root = Occurrence(name="root", version="1.0.0", enabled=True)
+        sub = Occurrence(name="sub", version="0.1.0")
         root.children["sub"] = sub
         graph = DependencyGraph(root=root)
         graph.flatten()
@@ -143,8 +143,8 @@ class TestFormatDot:
             raise AssertionError("root -> sub edge not found")
 
     def test_unknown_edge_solid(self) -> None:
-        root = ChartNode(name="root", version="1.0.0", enabled=True)
-        sub = ChartNode(name="sub", version="0.1.0", enabled=None)
+        root = Occurrence(name="root", version="1.0.0", enabled=True)
+        sub = Occurrence(name="sub", version="0.1.0", enabled=None)
         root.children["sub"] = sub
         graph = DependencyGraph(root=root)
         graph.flatten()
@@ -161,9 +161,9 @@ class TestFormatDot:
         import subprocess
         import tempfile
 
-        root = ChartNode(name="root", version="1.0.0", enabled=True)
-        a = ChartNode(name="a", version="1.0.0", enabled=True)
-        x = ChartNode(name="x", version="1.0.0", enabled=True)
+        root = Occurrence(name="root", version="1.0.0", enabled=True)
+        a = Occurrence(name="a", version="1.0.0", enabled=True)
+        x = Occurrence(name="x", version="1.0.0", enabled=True)
         root.children["a"] = a
         a.children["x"] = x
         graph = DependencyGraph(root=root)
@@ -217,8 +217,8 @@ class TestFormatDot:
         assert has_empty
 
     def test_alias_shown(self) -> None:
-        root = ChartNode(name="root", version="1.0.0", enabled=True)
-        child = ChartNode(name="sub", version="0.1.0", alias="custom", enabled=True)
+        root = Occurrence(name="root", version="1.0.0", enabled=True)
+        child = Occurrence(name="sub", version="0.1.0", alias="custom", enabled=True)
         root.children["custom"] = child
         graph = DependencyGraph(root=root)
         graph.flatten()
@@ -243,9 +243,9 @@ class TestFormatJson:
     def test_chart_type_in_json(self) -> None:
         import json
 
-        root = ChartNode(name="root", version="1.0.0", enabled=True)
-        lib = ChartNode(name="common", version="1.0.0", chart_type="library", enabled=None)
-        sub = ChartNode(name="sub", version="0.1.0", enabled=True)
+        root = Occurrence(name="root", version="1.0.0", enabled=True)
+        lib = Occurrence(name="common", version="1.0.0", chart_type="library", enabled=None)
+        sub = Occurrence(name="sub", version="0.1.0", enabled=True)
         root.children["common"] = lib
         root.children["sub"] = sub
         graph = DependencyGraph(root=root)
@@ -259,9 +259,9 @@ class TestFormatJson:
     def test_hide_libraries(self) -> None:
         import json
 
-        root = ChartNode(name="root", version="1.0.0", enabled=True)
-        lib = ChartNode(name="common", version="1.0.0", chart_type="library", enabled=None)
-        sub = ChartNode(name="sub", version="0.1.0", enabled=True)
+        root = Occurrence(name="root", version="1.0.0", enabled=True)
+        lib = Occurrence(name="common", version="1.0.0", chart_type="library", enabled=None)
+        sub = Occurrence(name="sub", version="0.1.0", enabled=True)
         root.children["common"] = lib
         root.children["sub"] = sub
         graph = DependencyGraph(root=root)
@@ -276,9 +276,9 @@ class TestLibraryCharts:
     """Tests for library chart handling in output."""
 
     def test_text_hides_libraries(self) -> None:
-        root = ChartNode(name="root", version="1.0.0", enabled=True)
-        lib = ChartNode(name="common", version="1.0.0", chart_type="library", enabled=None)
-        sub = ChartNode(name="sub", version="0.1.0", enabled=True)
+        root = Occurrence(name="root", version="1.0.0", enabled=True)
+        lib = Occurrence(name="common", version="1.0.0", chart_type="library", enabled=None)
+        sub = Occurrence(name="sub", version="0.1.0", enabled=True)
         root.children["common"] = lib
         root.children["sub"] = sub
         graph = DependencyGraph(root=root)
@@ -289,9 +289,9 @@ class TestLibraryCharts:
         assert "sub" in text
 
     def test_text_shows_libraries_when_not_hidden(self) -> None:
-        root = ChartNode(name="root", version="1.0.0", enabled=True)
-        lib = ChartNode(name="common", version="1.0.0", chart_type="library", enabled=None)
-        sub = ChartNode(name="sub", version="0.1.0", enabled=True)
+        root = Occurrence(name="root", version="1.0.0", enabled=True)
+        lib = Occurrence(name="common", version="1.0.0", chart_type="library", enabled=None)
+        sub = Occurrence(name="sub", version="0.1.0", enabled=True)
         root.children["common"] = lib
         root.children["sub"] = sub
         graph = DependencyGraph(root=root)
@@ -302,9 +302,9 @@ class TestLibraryCharts:
         assert "(library)" in text
 
     def test_dot_hides_libraries(self) -> None:
-        root = ChartNode(name="root", version="1.0.0", enabled=True)
-        lib = ChartNode(name="common", version="1.0.0", chart_type="library", enabled=None)
-        sub = ChartNode(name="sub", version="0.1.0", enabled=True)
+        root = Occurrence(name="root", version="1.0.0", enabled=True)
+        lib = Occurrence(name="common", version="1.0.0", chart_type="library", enabled=None)
+        sub = Occurrence(name="sub", version="0.1.0", enabled=True)
         root.children["common"] = lib
         root.children["sub"] = sub
         graph = DependencyGraph(root=root)
@@ -315,8 +315,8 @@ class TestLibraryCharts:
         assert '"sub"' in dot
 
     def test_dot_shows_library_label_when_not_hidden(self) -> None:
-        root = ChartNode(name="root", version="1.0.0", enabled=True)
-        lib = ChartNode(name="common", version="1.0.0", chart_type="library", enabled=None)
+        root = Occurrence(name="root", version="1.0.0", enabled=True)
+        lib = Occurrence(name="common", version="1.0.0", chart_type="library", enabled=None)
         root.children["common"] = lib
         graph = DependencyGraph(root=root)
         graph.flatten()
@@ -328,9 +328,9 @@ class TestLibraryCharts:
         import subprocess
         import tempfile
 
-        root = ChartNode(name="root", version="1.0.0", enabled=True)
-        lib = ChartNode(name="common", version="1.0.0", chart_type="library", enabled=None)
-        sub = ChartNode(name="sub", version="0.1.0", enabled=True)
+        root = Occurrence(name="root", version="1.0.0", enabled=True)
+        lib = Occurrence(name="common", version="1.0.0", chart_type="library", enabled=None)
+        sub = Occurrence(name="sub", version="0.1.0", enabled=True)
         root.children["common"] = lib
         root.children["sub"] = sub
         graph = DependencyGraph(root=root)
@@ -353,11 +353,11 @@ class TestMultiPathEnabled:
 
     def _make_diamond_graph(self) -> DependencyGraph:
         """Build: root -> a(disabled) -> shared, root -> b(enabled) -> shared."""
-        root = ChartNode(name="root", version="1.0.0", enabled=True)
-        a = ChartNode(name="a", version="1.0.0", enabled=False)
-        b = ChartNode(name="b", version="1.0.0", enabled=True)
-        shared_a = ChartNode(name="shared", version="1.0.0", enabled=False)
-        shared_b = ChartNode(name="shared", version="1.0.0", enabled=True)
+        root = Occurrence(name="root", version="1.0.0", enabled=True)
+        a = Occurrence(name="a", version="1.0.0", enabled=False)
+        b = Occurrence(name="b", version="1.0.0", enabled=True)
+        shared_a = Occurrence(name="shared", version="1.0.0", enabled=False)
+        shared_b = Occurrence(name="shared", version="1.0.0", enabled=True)
         a.children["shared"] = shared_a
         b.children["shared"] = shared_b
         root.children["a"] = a

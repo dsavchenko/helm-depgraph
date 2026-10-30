@@ -25,7 +25,7 @@ uv run ruff format . && uv run ruff check . && uv run mypy . && uv run pytest te
 src/helm_analyse/
 ├── __init__.py      # Package version
 ├── cli.py           # Click CLI (build command)
-├── graph.py         # ChartNode/DependencyGraph models, helm CLI integration
+├── graph.py         # Occurrence/DependencyGraph models, helm CLI integration
 ├── conditions.py    # Condition/tag evaluator per Helm spec
 └── output.py        # Text tree, JSON, DOT formatters
 ```

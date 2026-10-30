@@ -6,7 +6,7 @@ import logging
 from collections import defaultdict
 from typing import Any
 
-from helm_analyse.graph import ChartNode, DependencyGraph
+from helm_analyse.graph import DependencyGraph, Occurrence
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +47,8 @@ def evaluate_conditions(
         computed_values: Fully merged values from ``helm install --dry-run --debug``.
     """
 
-    for path, node in graph.nodes.items():
-        if node.key == graph.root.key:
+    for path, node in graph.occurrences.items():
+        if node is graph.root:
             node.enabled = True
             continue
 
@@ -69,22 +69,22 @@ def _propagate_disabled(graph: DependencyGraph) -> None:
     they are reachable through at least one alternative path where every
     ancestor is enabled.
     """
-    # Map chart key → all flat paths where it appears
+    # Map chart name → all flat paths where it appears
     chart_paths: dict[str, list[str]] = defaultdict(list)
-    for path, node in graph.nodes.items():
-        chart_paths[node.key].append(path)
+    for path, node in graph.occurrences.items():
+        chart_paths[node.name].append(path)
 
-    for path, node in list(graph.nodes.items()):
+    for path, node in list(graph.occurrences.items()):
         if node.enabled is not False:
             continue
 
         prefix = path + "/"
-        for desc_path, desc_node in list(graph.nodes.items()):
+        for desc_path, desc_node in list(graph.occurrences.items()):
             if not desc_path.startswith(prefix):
                 continue
 
             # Check if same chart appears on another fully-enabled path
-            other_paths = [p for p in chart_paths[desc_node.key] if p != desc_path]
+            other_paths = [p for p in chart_paths[desc_node.name] if p != desc_path]
             has_enabled_path = any(_is_path_enabled(graph, p) for p in other_paths)
             if not has_enabled_path:
                 desc_node.enabled = False
@@ -92,7 +92,7 @@ def _propagate_disabled(graph: DependencyGraph) -> None:
 
 def _is_path_enabled(graph: DependencyGraph, path: str) -> bool:
     """True if the node at path is enabled and every ancestor is enabled."""
-    node = graph.nodes.get(path)
+    node = graph.occurrences.get(path)
     return node is not None and node.enabled is True and _all_ancestors_enabled(graph, path)
 
 
@@ -101,13 +101,13 @@ def _all_ancestors_enabled(graph: DependencyGraph, path: str) -> bool:
     parts = path.split("/")
     for i in range(1, len(parts)):
         ancestor_path = "/".join(parts[:i])
-        ancestor = graph.nodes.get(ancestor_path)
+        ancestor = graph.occurrences.get(ancestor_path)
         if ancestor is None or ancestor.enabled is not True:
             return False
     return True
 
 
-def effective_enabled(graph: DependencyGraph, chart_key: str) -> bool | None:
+def effective_enabled(graph: DependencyGraph, chart_name: str) -> bool | None:
     """Return the effective enabled state for a chart across all its paths.
 
     A chart that appears at multiple paths (diamond dependencies) is considered
@@ -118,9 +118,7 @@ def effective_enabled(graph: DependencyGraph, chart_key: str) -> bool | None:
         None if no paths found or all are None.
     """
     best: bool | None = None
-    for node in graph.nodes.values():
-        if node.key != chart_key:
-            continue
+    for node in graph.occurrences_of(chart_name).values():
         if node.enabled is True:
             return True
         if node.enabled is False and best is None:
@@ -128,7 +126,7 @@ def effective_enabled(graph: DependencyGraph, chart_key: str) -> bool | None:
     return best
 
 
-def _evaluate_node(node: ChartNode, values: dict[str, Any], prefix: str = "") -> None:
+def _evaluate_node(node: Occurrence, values: dict[str, Any], prefix: str = "") -> None:
     """Evaluate a single node's conditions and tags.
 
     Args:

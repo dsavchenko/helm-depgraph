@@ -8,65 +8,93 @@ from click.testing import CliRunner
 
 from helm_analyse.cli import main
 from helm_analyse.graph import (
-    ChartNode,
     ComputedValuesError,
     DependencyGraph,
+    Occurrence,
     _parse_computed_values,
     _parse_dependency,
 )
 
 
-class TestChartNode:
-    """Tests for ChartNode."""
+class TestOccurrence:
+    """Tests for Occurrence."""
 
-    def test_key_without_alias(self) -> None:
-        node = ChartNode(name="mychart", version="1.0.0")
-        assert node.key == "mychart"
+    def test_scope_key_without_alias(self) -> None:
+        node = Occurrence(name="mychart", version="1.0.0")
+        assert node.scope_key == "mychart"
 
-    def test_key_with_alias(self) -> None:
-        node = ChartNode(name="mychart", version="1.0.0", alias="custom")
-        assert node.key == "custom"
+    def test_scope_key_with_alias(self) -> None:
+        node = Occurrence(name="mychart", version="1.0.0", alias="custom")
+        assert node.scope_key == "custom"
 
 
 class TestDependencyGraph:
     """Tests for DependencyGraph flatten."""
 
     def test_flatten_simple(self) -> None:
-        root = ChartNode(name="root", version="1.0.0")
-        child = ChartNode(name="sub", version="0.1.0")
+        root = Occurrence(name="root", version="1.0.0")
+        child = Occurrence(name="sub", version="0.1.0")
         root.children["sub"] = child
 
         graph = DependencyGraph(root=root)
         graph.flatten()
 
-        assert "root" in graph.nodes
-        assert "root/sub" in graph.nodes
-        assert len(graph.nodes) == 2
+        assert "root" in graph.occurrences
+        assert "root/sub" in graph.occurrences
+        assert len(graph.occurrences) == 2
 
     def test_flatten_nested(self) -> None:
-        root = ChartNode(name="root", version="1.0.0")
-        sub = ChartNode(name="sub", version="0.1.0")
-        leaf = ChartNode(name="leaf", version="0.0.1")
+        root = Occurrence(name="root", version="1.0.0")
+        sub = Occurrence(name="sub", version="0.1.0")
+        leaf = Occurrence(name="leaf", version="0.0.1")
         sub.children["leaf"] = leaf
         root.children["sub"] = sub
 
         graph = DependencyGraph(root=root)
         graph.flatten()
 
-        assert "root" in graph.nodes
-        assert "root/sub" in graph.nodes
-        assert "root/sub/leaf" in graph.nodes
-        assert len(graph.nodes) == 3
+        assert "root" in graph.occurrences
+        assert "root/sub" in graph.occurrences
+        assert "root/sub/leaf" in graph.occurrences
+        assert len(graph.occurrences) == 3
 
     def test_flatten_with_alias(self) -> None:
-        root = ChartNode(name="root", version="1.0.0")
-        sub = ChartNode(name="sub", version="0.1.0", alias="custom")
+        root = Occurrence(name="root", version="1.0.0")
+        sub = Occurrence(name="sub", version="0.1.0", alias="custom")
         root.children["custom"] = sub
 
         graph = DependencyGraph(root=root)
         graph.flatten()
 
-        assert "root/custom" in graph.nodes
+        assert "root/custom" in graph.occurrences
+
+    def test_aliased_twice_is_one_chart_two_occurrences(self) -> None:
+        root = Occurrence(name="root", version="1.0.0")
+        main = Occurrence(name="postgresql", version="15.0.0", alias="db-main")
+        audit = Occurrence(name="postgresql", version="15.0.0", alias="db-audit")
+        root.children["db-main"] = main
+        root.children["db-audit"] = audit
+
+        graph = DependencyGraph(root=root)
+        graph.flatten()
+
+        assert set(graph.occurrences_of("postgresql")) == {"root/db-main", "root/db-audit"}
+        assert graph.occurrences_of("db-main") == {}
+
+    def test_chart_versions_across_diamond(self) -> None:
+        root = Occurrence(name="root", version="1.0.0")
+        wms = Occurrence(name="wms", version="1.0.0")
+        diracx = Occurrence(name="diracx", version="1.0.0")
+        wms.children["common"] = Occurrence(name="common", version="2.4.0")
+        diracx.children["common"] = Occurrence(name="common", version="2.1.0")
+        root.children["wms"] = wms
+        root.children["diracx"] = diracx
+
+        graph = DependencyGraph(root=root)
+        graph.flatten()
+
+        assert graph.chart_versions("common") == ["2.1.0", "2.4.0"]
+        assert graph.chart_versions("wms") == ["1.0.0"]
 
 
 class TestParseDependency:
@@ -105,7 +133,7 @@ class TestParseDependency:
         }
         node = _parse_dependency(dep)
         assert node.alias == "custom"
-        assert node.key == "custom"
+        assert node.scope_key == "custom"
 
     def test_dependency_with_tags(self) -> None:
         dep = {
@@ -177,15 +205,15 @@ version: 2.0.0
         graph = build_graph(root_chart, use_helm_build=False)
 
         assert graph.root.name == "mychart"
-        assert len(graph.nodes) == 3
-        assert "mychart" in graph.nodes
-        assert "mychart/sub1" in graph.nodes
-        assert "mychart/sub2" in graph.nodes
+        assert len(graph.occurrences) == 3
+        assert "mychart" in graph.occurrences
+        assert "mychart/sub1" in graph.occurrences
+        assert "mychart/sub2" in graph.occurrences
 
-        sub1_node = graph.nodes["mychart/sub1"]
+        sub1_node = graph.occurrences["mychart/sub1"]
         assert sub1_node.conditions == ["sub1.enabled"]
 
-        sub2_node = graph.nodes["mychart/sub2"]
+        sub2_node = graph.occurrences["mychart/sub2"]
         assert sub2_node.tags == ["backend"]
 
     def test_build_graph_with_library_chart(self, tmp_path: Path) -> None:
@@ -234,12 +262,12 @@ version: 1.0.0
         graph = build_graph(root_chart, use_helm_build=False)
 
         assert graph.root.name == "mychart"
-        assert len(graph.nodes) == 3
+        assert len(graph.occurrences) == 3
 
-        common_node = graph.nodes["mychart/common"]
+        common_node = graph.occurrences["mychart/common"]
         assert common_node.chart_type == "library"
 
-        sub1_node = graph.nodes["mychart/sub1"]
+        sub1_node = graph.occurrences["mychart/sub1"]
         assert sub1_node.chart_type is None
 
     def test_build_graph_from_archived_dependencies(self, tmp_path: Path) -> None:
@@ -297,9 +325,9 @@ version: 0.2.0
         graph = build_graph(root_chart, use_helm_build=False)
 
         assert graph.root.name == "mychart"
-        assert "mychart/sub1" in graph.nodes
-        assert "mychart/sub1/sub2" in graph.nodes
-        assert graph.nodes["mychart/sub1"].conditions == ["sub1.enabled"]
+        assert "mychart/sub1" in graph.occurrences
+        assert "mychart/sub1/sub2" in graph.occurrences
+        assert graph.occurrences["mychart/sub1"].conditions == ["sub1.enabled"]
 
         # The original chart path must be left untouched (only the .tgz remains).
         assert sorted(p.name for p in charts_dir.iterdir()) == ["sub1-1.0.0.tgz"]
@@ -357,8 +385,8 @@ version: 0.1.0
 
         graph = build_graph(root_chart, use_helm_build=False)
 
-        assert "mychart/parent" in graph.nodes
-        assert "mychart/parent/leaf" in graph.nodes
+        assert "mychart/parent" in graph.occurrences
+        assert "mychart/parent/leaf" in graph.occurrences
 
         # Original chart path untouched — no unpacked dirs next to the archives.
         assert sorted(p.name for p in charts_dir.iterdir()) == ["parent-1.0.0.tgz"]

@@ -152,7 +152,7 @@ uv run pytest tests/test_conditions.py::TestEffectiveEnabled::test_diamond_child
 src/helm_analyse/
 ├── __init__.py      # Package version
 ├── cli.py           # Click CLI (build command)
-├── graph.py         # ChartNode/DependencyGraph models, helm CLI integration
+├── graph.py         # Occurrence/DependencyGraph models, helm CLI integration
 ├── conditions.py    # Condition/tag evaluator per Helm spec
 └── output.py        # Text tree, JSON, DOT formatters
 ```

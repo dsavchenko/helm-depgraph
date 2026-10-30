@@ -6,15 +6,15 @@ import json
 from typing import Any
 
 from helm_analyse.conditions import effective_enabled
-from helm_analyse.graph import ChartNode, DependencyGraph
+from helm_analyse.graph import DependencyGraph, Occurrence
 
 
-def _is_library(node: ChartNode) -> bool:
+def _is_library(node: Occurrence) -> bool:
     """Check if a node is a library chart."""
     return node.chart_type == "library"
 
 
-def _filter_libraries(nodes: dict[str, ChartNode]) -> dict[str, ChartNode]:
+def _filter_libraries(nodes: dict[str, Occurrence]) -> dict[str, Occurrence]:
     """Filter out library charts from a nodes dict."""
     return {path: node for path, node in nodes.items() if not _is_library(node)}
 
@@ -40,11 +40,11 @@ def format_text(
     lines: list[str] = []
     seen: set[str] = set()
 
-    def _walk(node: ChartNode, prefix: str = "", is_last: bool = True) -> None:
+    def _walk(node: Occurrence, prefix: str = "", is_last: bool = True) -> None:
         if hide_libraries and _is_library(node):
             return
 
-        eff = effective_enabled(graph, node.key)
+        eff = effective_enabled(graph, node.name)
         connector = "└── " if is_last else "├── "
         status = _status_str(eff)
         alias_str = f" (alias: {node.alias})" if node.alias else ""
@@ -59,8 +59,8 @@ def format_text(
         children = list(node.children.values())
         child_prefix = prefix + ("    " if is_last else "│   ")
 
-        enabled = [c for c in children if effective_enabled(graph, c.key) is True]
-        other = [c for c in children if effective_enabled(graph, c.key) is not True]
+        enabled = [c for c in children if effective_enabled(graph, c.name) is True]
+        other = [c for c in children if effective_enabled(graph, c.name) is not True]
 
         for i, child in enumerate(enabled):
             _walk(child, child_prefix, i == len(enabled) - 1 and not other)
@@ -77,16 +77,16 @@ def format_text(
     lines.append(f"{graph.root.name}-{graph.root.version} (root){root_type} {root_status}")
 
     # Summary
-    visible_nodes = _filter_libraries(graph.nodes) if hide_libraries else graph.nodes
+    visible_nodes = _filter_libraries(graph.occurrences) if hide_libraries else graph.occurrences
     seen_keys: set[str] = set()
     enabled_count = 0
     disabled_count = 0
     unknown_count = 0
     for node in visible_nodes.values():
-        if node.key in seen_keys:
+        if node.name in seen_keys:
             continue
-        seen_keys.add(node.key)
-        eff = effective_enabled(graph, node.key)
+        seen_keys.add(node.name)
+        eff = effective_enabled(graph, node.name)
         if eff is True:
             enabled_count += 1
         elif eff is False:
@@ -119,7 +119,7 @@ def format_json(
         JSON string.
     """
 
-    def _node_to_dict(node: ChartNode) -> dict[str, Any]:
+    def _node_to_dict(node: Occurrence) -> dict[str, Any]:
         children = {
             k: _node_to_dict(v)
             for k, v in node.children.items()
@@ -133,24 +133,24 @@ def format_json(
             "chart_type": node.chart_type,
             "conditions": node.conditions,
             "tags": node.tags,
-            "enabled": effective_enabled(graph, node.key),
+            "enabled": effective_enabled(graph, node.name),
             "children": children,
         }
 
-    visible_nodes = _filter_libraries(graph.nodes) if hide_libraries else graph.nodes
-    # Deduplicate nodes by chart key, using effective enabled state
+    visible_nodes = _filter_libraries(graph.occurrences) if hide_libraries else graph.occurrences
+    # Deduplicate nodes by chart name, using effective enabled state
     seen_keys: set[str] = set()
     nodes_dict: dict[str, dict[str, Any]] = {}
     for path, node in visible_nodes.items():
-        if node.key in seen_keys:
+        if node.name in seen_keys:
             continue
-        seen_keys.add(node.key)
+        seen_keys.add(node.name)
         nodes_dict[path] = {
             "name": node.name,
             "version": node.version,
             "alias": node.alias,
             "chart_type": node.chart_type,
-            "enabled": effective_enabled(graph, node.key),
+            "enabled": effective_enabled(graph, node.name),
         }
     data = {
         "root": _node_to_dict(graph.root),
@@ -190,14 +190,14 @@ def format_dot(
 
     seen: set[str] = set()
 
-    def _add_node(node: ChartNode) -> None:
+    def _add_node(node: Occurrence) -> None:
         if hide_libraries and _is_library(node):
             return
         if node.name in seen:
             return
         seen.add(node.name)
 
-        eff = effective_enabled(graph, node.key)
+        eff = effective_enabled(graph, node.name)
 
         label = f"{node.name}\\n{node.version}"
         if node.alias:

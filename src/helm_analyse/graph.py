@@ -16,8 +16,8 @@ import yaml
 
 
 @dataclass
-class ChartNode:
-    """A single chart in the dependency graph."""
+class Occurrence:
+    """One appearance of a chart at a specific path in the dependency tree."""
 
     name: str
     version: str
@@ -27,10 +27,11 @@ class ChartNode:
     conditions: list[str] = field(default_factory=list)
     tags: list[str] = field(default_factory=list)
     enabled: bool | None = None
-    children: dict[str, ChartNode] = field(default_factory=dict)
+    children: dict[str, Occurrence] = field(default_factory=dict)
 
     @property
-    def key(self) -> str:
+    def scope_key(self) -> str:
+        """Name of this occurrence's values scope (and path segment): alias or chart name."""
         return self.alias or self.name
 
 
@@ -38,19 +39,27 @@ class ChartNode:
 class DependencyGraph:
     """Full dependency graph for a chart."""
 
-    root: ChartNode
-    nodes: dict[str, ChartNode] = field(default_factory=dict)
+    root: Occurrence
+    occurrences: dict[str, Occurrence] = field(default_factory=dict)
 
-    def flatten(self, node: ChartNode | None = None, prefix: str = "") -> None:
-        """Flatten the tree into self.nodes with full paths as keys."""
+    def flatten(self, node: Occurrence | None = None, prefix: str = "") -> None:
+        """Flatten the tree into self.occurrences with full paths as keys."""
         if node is None:
             node = self.root
-            self.nodes = {}
+            self.occurrences = {}
 
-        path = f"{prefix}/{node.key}" if prefix else node.key
-        self.nodes[path] = node
+        path = f"{prefix}/{node.scope_key}" if prefix else node.scope_key
+        self.occurrences[path] = node
         for child in node.children.values():
             self.flatten(child, prefix=path)
+
+    def occurrences_of(self, chart_name: str) -> dict[str, Occurrence]:
+        """All occurrences of a chart (identified by name), keyed by path."""
+        return {p: o for p, o in self.occurrences.items() if o.name == chart_name}
+
+    def chart_versions(self, chart_name: str) -> list[str]:
+        """Sorted distinct versions pinned across a chart's occurrences."""
+        return sorted({o.version for o in self.occurrences_of(chart_name).values()})
 
 
 def _run_helm(args: list[str], helm_bin: str = "helm") -> str:
@@ -74,9 +83,9 @@ def _parse_chart_yaml(path: Path) -> dict[str, Any]:
 def _build_node_from_chart(
     chart_data: dict[str, Any],
     repo_url: str | None = None,
-) -> ChartNode:
-    """Create a ChartNode from parsed Chart.yaml data."""
-    return ChartNode(
+) -> Occurrence:
+    """Create a Occurrence from parsed Chart.yaml data."""
+    return Occurrence(
         name=chart_data["name"],
         version=chart_data.get("version", "0.0.0"),
         repository=repo_url or chart_data.get("repository"),
@@ -84,13 +93,13 @@ def _build_node_from_chart(
     )
 
 
-def _parse_dependency(dep: dict[str, Any]) -> ChartNode:
+def _parse_dependency(dep: dict[str, Any]) -> Occurrence:
     """Parse a single dependency entry from Chart.yaml."""
     conditions = []
     if cond := dep.get("condition"):
         conditions = [c.strip() for c in cond.split(",")]
 
-    return ChartNode(
+    return Occurrence(
         name=dep["name"],
         version=dep.get("version", "*"),
         repository=dep.get("repository"),
@@ -127,7 +136,7 @@ def build_graph(
         use_helm_build: If True, run `helm dependency build` first.
 
     Returns:
-        DependencyGraph with all nodes.
+        DependencyGraph with all occurrences.
     """
     chart_yaml = _parse_chart_yaml(chart_path / "Chart.yaml")
     root = _build_node_from_chart(chart_yaml)
@@ -164,7 +173,7 @@ def build_graph(
 
 def _resolve_children(
     chart_path: Path,
-    node: ChartNode,
+    node: Occurrence,
     chart_yaml: dict[str, Any],
     charts_dir: Path | None = None,
     mirror_root: Path | None = None,
@@ -233,7 +242,7 @@ def _resolve_children(
         child.tags = dep_def.get("tags", [])
         child.alias = dep_def.get("alias")
 
-        node.children[child.key] = child
+        node.children[child.scope_key] = child
         _resolve_children(dep_dir, child, dep_data, mirror_root=mirror_root)
 
 
@@ -248,7 +257,7 @@ def build_graph_from_helm_show(
         helm_bin: Path to helm binary.
 
     Returns:
-        DependencyGraph with all nodes.
+        DependencyGraph with all occurrences.
     """
     chart_output = _run_helm(["show", "chart", "--json", chart_ref], helm_bin=helm_bin)
     chart_data: dict[str, Any] = yaml.safe_load(chart_output)
@@ -263,7 +272,7 @@ def build_graph_from_helm_show(
 
 def _resolve_children_from_helm_show(
     chart_ref: str,
-    node: ChartNode,
+    node: Occurrence,
     helm_bin: str,
 ) -> None:
     """Recursively resolve children using helm show chart."""
@@ -277,7 +286,7 @@ def _resolve_children_from_helm_show(
             child.tags = dep.tags
             child.alias = dep.alias
 
-            node.children[child.key] = child
+            node.children[child.scope_key] = child
             _resolve_children_from_helm_show(dep_ref, child, helm_bin)
         except subprocess.CalledProcessError:
             continue
