@@ -1,6 +1,9 @@
 """Tests for condition evaluator."""
 
+import logging
 from pathlib import Path
+
+import pytest
 
 from helm_analyse.conditions import (
     _propagate_disabled,
@@ -81,6 +84,25 @@ class TestEvaluateConditions:
         graph = self._make_graph(conditions=["subchart.enabled", "global.subchart.enabled"])
         evaluate_conditions(graph, {"global": {"subchart": {"enabled": False}}})
         assert graph.nodes["root/subchart"].enabled is False
+
+    def test_non_boolean_condition_skipped(self) -> None:
+        graph = self._make_graph(conditions=["subchart.enabled", "global.subchart.enabled"])
+        evaluate_conditions(
+            graph,
+            {"subchart": {"enabled": "false"}, "global": {"subchart": {"enabled": False}}},
+        )
+        assert graph.nodes["root/subchart"].enabled is False
+
+    def test_non_boolean_condition_falls_through_to_default(self) -> None:
+        graph = self._make_graph(conditions=["subchart.enabled"])
+        evaluate_conditions(graph, {"subchart": {"enabled": 0}})
+        assert graph.nodes["root/subchart"].enabled is True
+
+    def test_non_boolean_condition_warns(self, caplog: pytest.LogCaptureFixture) -> None:
+        graph = self._make_graph(conditions=["subchart.enabled"])
+        with caplog.at_level(logging.WARNING, logger="helm_analyse.conditions"):
+            evaluate_conditions(graph, {"subchart": {"enabled": "yes"}})
+        assert "Condition path 'subchart.enabled' for chart subchart" in caplog.text
 
     def test_condition_overrides_tag(self) -> None:
         graph = self._make_graph(conditions=["subchart.enabled"], tags=["web"])

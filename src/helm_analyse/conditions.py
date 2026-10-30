@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 from typing import Any
 
 from helm_analyse.graph import ChartNode, DependencyGraph
+
+logger = logging.getLogger(__name__)
 
 
 def _resolve_path(path: str, values: dict[str, Any]) -> Any:
@@ -144,14 +147,21 @@ def _evaluate_node(node: ChartNode, values: dict[str, Any], prefix: str = "") ->
         prefix: Dot-separated prefix for the node's values namespace
                 (e.g., "wms.diracx" for a chart at root/wms/diracx/dex).
     """
-    # Check conditions first (they override tags)
+    # Check conditions first (they override tags). Per Helm, the first path
+    # holding a boolean decides; missing or non-boolean paths are skipped.
     if node.conditions:
         for condition_path in node.conditions:
             full_path = f"{prefix}.{condition_path}" if prefix else condition_path
             result = _resolve_path(full_path, values)
-            if result is not None:
-                node.enabled = bool(result)
+            if isinstance(result, bool):
+                node.enabled = result
                 return
+            if result is not None:
+                logger.warning(
+                    "Condition path '%s' for chart %s returned non-bool value",
+                    condition_path,
+                    node.name,
+                )
 
     # Fall back to tags
     if node.tags:
