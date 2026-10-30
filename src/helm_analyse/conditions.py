@@ -76,19 +76,9 @@ def _propagate_disabled(graph: DependencyGraph) -> None:
             node.enabled = False
 
 
-def chart_status(graph: DependencyGraph, chart_name: str) -> bool | None:
-    """Return the chart status: on if any of the chart's occurrences is on.
-
-    Returns:
-        True if any occurrence is enabled, False if all evaluated occurrences
-        are disabled, None if the chart has no evaluated occurrences.
-    """
-    statuses = [o.enabled for o in graph.occurrences_of(chart_name).values()]
-    if True in statuses:
-        return True
-    if False in statuses:
-        return False
-    return None
+def chart_status(graph: DependencyGraph, chart_name: str) -> bool:
+    """Return the chart status: on if any of the chart's occurrences is on."""
+    return any(o.enabled is True for o in graph.occurrences_of(chart_name).values())
 
 
 def _evaluate_node(node: Occurrence, values: dict[str, Any], prefix: str = "") -> None:

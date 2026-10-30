@@ -496,7 +496,7 @@ class TestChartStatus:
         graph = DependencyGraph(root=root)
         graph.flatten()
         assert chart_status(graph, "postgresql") is True
-        assert chart_status(graph, "db-main") is None
+        assert chart_status(graph, "db-main") is False
 
     def test_single_path_enabled(self) -> None:
         root = Occurrence(name="root", version="1.0.0")
@@ -513,14 +513,6 @@ class TestChartStatus:
         graph = DependencyGraph(root=root)
         graph.flatten()
         assert chart_status(graph, "sub") is False
-
-    def test_single_path_unknown(self) -> None:
-        root = Occurrence(name="root", version="1.0.0")
-        sub = Occurrence(name="sub", version="1.0.0", enabled=None)
-        root.children["sub"] = sub
-        graph = DependencyGraph(root=root)
-        graph.flatten()
-        assert chart_status(graph, "sub") is None
 
     def test_diamond_one_enabled(self) -> None:
         """Chart at two paths, one enabled one disabled => chart status on."""
@@ -582,11 +574,11 @@ class TestChartStatus:
         assert graph.occurrences["root/b/shared"].enabled is False
         assert chart_status(graph, "shared") is False
 
-    def test_not_found_returns_none(self) -> None:
+    def test_not_found_is_off(self) -> None:
         root = Occurrence(name="root", version="1.0.0")
         graph = DependencyGraph(root=root)
         graph.flatten()
-        assert chart_status(graph, "nonexistent") is None
+        assert chart_status(graph, "nonexistent") is False
 
     def test_real_scenario_minio_diamond(self) -> None:
         """minio under disabled loki AND enabled diracx => chart status on."""

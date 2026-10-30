@@ -112,15 +112,16 @@ Two flat lists:
 
 ### dot
 
-Graphviz DOT. Node fill and border colors encode status:
+Graphviz DOT with **one node per chart** and **one edge per dependency** (parent chart, alias, child chart).
 
-| Status | Fill | Border | Style |
-| ------ | ---- | ------ | ----- |
-| Enabled | `lightgreen` | `darkgreen` | filled |
-| Disabled | `mistyrose` | `grey` | filled, dashed |
-| Unknown | `lightgrey` | `grey` | filled, dotted |
+Nodes show the chart name and every version pinned across its occurrences (e.g. `common` / `2.1, 2.4`). Fill and border encode the chart status:
 
-Edges from a disabled parent to a child that stays enabled via another path are drawn `dashed`.
+| Chart status | Fill | Border | Style |
+| ------------ | ---- | ------ | ----- |
+| On | `lightgreen` | `darkgreen` | filled |
+| Off | `mistyrose` | `grey` | filled, dashed |
+
+An edge covers every occurrence of that dependency in the tree and is drawn `dashed` only if all of those occurrences are off. When the dependency is aliased, the edge is labelled with the alias; a chart included twice under different aliases gets two edges.
 
 The DOT header includes `ranksep` and `nodesep`, which control the vertical space between dependency layers and the horizontal space between siblings when rendered (see `--ranksep` / `--nodesep`).
 

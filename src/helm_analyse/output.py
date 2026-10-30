@@ -14,9 +14,22 @@ def _is_library(node: Occurrence) -> bool:
     return node.chart_type == "library"
 
 
-def _filter_libraries(nodes: dict[str, Occurrence]) -> dict[str, Occurrence]:
-    """Filter out library charts from a nodes dict."""
-    return {path: node for path, node in nodes.items() if not _is_library(node)}
+def _require_evaluated(graph: DependencyGraph) -> None:
+    """Raise if any occurrence has no status yet."""
+    if any(o.enabled is None for o in graph.occurrences.values()):
+        raise ValueError("Graph has not been evaluated: occurrence status is unset")
+
+
+def _visible_occurrences(graph: DependencyGraph, hide_libraries: bool) -> dict[str, Occurrence]:
+    """Occurrences to show; hiding libraries also hides their descendants."""
+    if not hide_libraries:
+        return graph.occurrences
+    hidden = [p for p, o in graph.occurrences.items() if _is_library(o)]
+    return {
+        path: node
+        for path, node in graph.occurrences.items()
+        if not any(path == h or path.startswith(h + "/") for h in hidden)
+    }
 
 
 def format_text(
@@ -38,6 +51,7 @@ def format_text(
     Returns:
         Formatted text string.
     """
+    _require_evaluated(graph)
     lines: list[str] = []
     seen: set[str] = set()
 
@@ -78,9 +92,9 @@ def format_text(
     lines.append(f"{graph.root.name}-{graph.root.version} (root){root_type} {root_status}")
 
     # Summary: distinct charts by chart status
-    visible = _filter_libraries(graph.occurrences) if hide_libraries else graph.occurrences
+    visible = _visible_occurrences(graph, hide_libraries)
     chart_names = {node.name for node in visible.values()}
-    on_count = sum(1 for name in chart_names if chart_status(graph, name) is True)
+    on_count = sum(1 for name in chart_names if chart_status(graph, name))
     lines.append(f"  {on_count} on, {len(chart_names) - on_count} off")
     lines.append("")
 
@@ -109,7 +123,8 @@ def format_json(
     Returns:
         JSON string.
     """
-    visible = _filter_libraries(graph.occurrences) if hide_libraries else graph.occurrences
+    _require_evaluated(graph)
+    visible = _visible_occurrences(graph, hide_libraries)
 
     occurrences = [
         {
@@ -121,7 +136,7 @@ def format_json(
             "type": node.chart_type,
             "conditions": node.conditions,
             "tags": node.tags,
-            "status": _status_word(node.enabled),
+            "status": _status_word(bool(node.enabled)),
         }
         for path, node in visible.items()
     ]
@@ -145,10 +160,14 @@ def format_dot(
     ranksep: float | None = 1.5,
     nodesep: float | None = 0.6,
 ) -> str:
-    """Format graph as Graphviz DOT.
+    """Format graph as Graphviz DOT: one node per chart, one edge per dependency.
+
+    Nodes are styled by chart status and list every version pinned across the
+    chart's occurrences. An edge stands for all occurrences of a (parent chart,
+    alias, child chart) dependency and is dashed only if every one of them is off.
 
     Args:
-        graph: The dependency graph.
+        graph: The evaluated dependency graph.
         hide_libraries: If True, exclude library charts from output.
         ranksep: Vertical space between ranks (layers). None to omit.
         nodesep: Horizontal space between nodes in the same rank. None to omit.
@@ -156,6 +175,7 @@ def format_dot(
     Returns:
         DOT string.
     """
+    _require_evaluated(graph)
     lines = [
         "digraph helm_deps {",
         "  rankdir=TB;",
@@ -167,60 +187,48 @@ def format_dot(
         lines.append(f"  nodesep={nodesep};")
     lines.append("")
 
-    seen: set[str] = set()
+    visible = _visible_occurrences(graph, hide_libraries)
 
-    def _add_node(node: Occurrence) -> None:
-        if hide_libraries and _is_library(node):
-            return
-        if node.name in seen:
-            return
-        seen.add(node.name)
-
-        eff = chart_status(graph, node.name)
-
-        label = f"{node.name}\\n{node.version}"
-        if node.alias:
-            label += f"\\n(alias: {node.alias})"
+    # Nodes: one per chart, in order of first appearance
+    charts: dict[str, Occurrence] = {}
+    for node in visible.values():
+        charts.setdefault(node.name, node)
+    for name, node in charts.items():
+        label = f"{name}\\n{', '.join(graph.chart_versions(name))}"
         if _is_library(node):
             label += "\\n(library)"
-
-        if eff is True:
-            fill = "lightgreen"
-            style = "filled"
-            border = "darkgreen"
-        elif eff is False:
-            fill = "mistyrose"
-            style = "filled,dashed"
-            border = "grey"
+        if chart_status(graph, name):
+            fill, style, border = "lightgreen", "filled", "darkgreen"
         else:
-            fill = "lightgrey"
-            style = "filled,dotted"
-            border = "grey"
-
+            fill, style, border = "mistyrose", "filled,dashed", "grey"
         lines.append(
-            f'  "{node.name}" [label="{label}" fillcolor={fill} style="{style}" color={border}];'
+            f'  "{name}" [label="{label}" fillcolor={fill} style="{style}" color={border}];'
         )
 
-        for child in node.children.values():
-            if hide_libraries and _is_library(child):
-                continue
-            _add_node(child)
-            edge_style = "solid" if child.enabled is not False else "dashed"
-            lines.append(f'  "{node.name}" -> "{child.name}" [style="{edge_style}"];')
+    # Edges: (parent chart, alias, child chart) -> statuses of the occurrences it covers
+    edges: dict[tuple[str, str, str], list[bool]] = {}
+    for path, node in visible.items():
+        if node is graph.root:
+            continue
+        parent = graph.occurrences[path.rsplit("/", 1)[0]]
+        key = (parent.name, node.scope_key, node.name)
+        edges.setdefault(key, []).append(bool(node.enabled))
+    for (parent_name, scope_key, child_name), statuses in edges.items():
+        attrs = f'style="{"solid" if any(statuses) else "dashed"}"'
+        if scope_key != child_name:
+            attrs += f' label="{scope_key}"'
+        lines.append(f'  "{parent_name}" -> "{child_name}" [{attrs}];')
 
-    _add_node(graph.root)
     lines.append("}")
 
     return "\n".join(lines)
 
 
-def _status_word(enabled: bool | None) -> str:
+def _status_word(enabled: bool) -> str:
     """Convert a status to ``on``/``off``."""
-    if enabled is None:
-        raise ValueError("Graph has not been evaluated: occurrence status is unset")
     return "on" if enabled else "off"
 
 
 def _status_str(enabled: bool | None) -> str:
-    """Convert a status to its text-tree display string."""
-    return f"[{_status_word(enabled)}]"
+    """Convert an occurrence status to its text-tree display string."""
+    return f"[{_status_word(bool(enabled))}]"
