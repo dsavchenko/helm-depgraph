@@ -47,3 +47,17 @@ helm-analyse build <chart_path> [-f values.yaml] [--format text|json|dot] [--dup
 - Condition evaluation accepts a `computed_values` param (root-merged values from helm) used in place of raw root values; combined with the prefix rule (`prefix.condition_path`) it correctly resolves grandparent and diamond cases.
 - `get_computed_values(chart_path, values_file=None)` returns the parsed `COMPUTED VALUES:` block; CLI passes it to `evaluate_conditions()` via the `computed_values` keyword.
 - Edit `conditions.py`/`graph.py` in sync: `evaluate_conditions(graph, values, computed_values=None)` and `get_computed_values()` are design-coupled.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs live as local markdown files under `.scratch/<feature>/`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix` (stored as a `Status:` line in each issue file). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
