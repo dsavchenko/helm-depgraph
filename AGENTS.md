@@ -2,7 +2,7 @@
 
 ## Project
 
-Python CLI tool for building Helm chart dependency graphs and evaluating conditional dependencies (recursively) against merged values. No manifest analysis — a single `build` command covers condition evaluation via `get_computed_values()`.
+Python CLI tool for building Helm chart dependency graphs and evaluating conditional dependencies (recursively) against merged values. No manifest analysis — a single-command CLI covers condition evaluation via `get_computed_values()`.
 
 ## Conventions
 
@@ -24,7 +24,7 @@ uv run ruff format . && uv run ruff check . && uv run mypy . && uv run pytest te
 ```
 src/helm_analyse/
 ├── __init__.py      # Package version
-├── cli.py           # Click CLI (build command)
+├── cli.py           # Click CLI (single command)
 ├── graph.py         # Occurrence/DependencyGraph models, helm CLI integration
 ├── conditions.py    # Condition/tag evaluator per Helm spec
 └── output.py        # Text tree, JSON, DOT formatters
@@ -34,7 +34,7 @@ src/helm_analyse/
 
 ```bash
 # Build dependency graph
-helm-analyse build <chart_path> [-f values.yaml] [--format text|json|dot] [--duplicates]
+helm-analyse <chart_path> [-f values.yaml] [--format text|json|dot] [--duplicates]
 ```
 
 ## Helm-specific notes

@@ -16,13 +16,8 @@ from helm_analyse.graph import (
 from helm_analyse.output import format_dot, format_json, format_text
 
 
-@click.group()
+@click.command()
 @click.version_option()
-def main() -> None:
-    """Helm chart dependency graph analyser."""
-
-
-@main.command()
 @click.argument("chart_path", type=click.Path(exists=True, path_type=Path))
 @click.option("-f", "--values", "values_file", type=click.Path(exists=True, path_type=Path))
 @click.option(
@@ -39,7 +34,7 @@ def main() -> None:
 )
 @click.option("--ranksep", type=float, default=1.5, help="Vertical space between ranks (DOT)")
 @click.option("--nodesep", type=float, default=0.6, help="Horizontal space between nodes (DOT)")
-def build(
+def main(
     chart_path: Path,
     values_file: Path | None,
     output_format: str,
@@ -50,10 +45,10 @@ def build(
     ranksep: float,
     nodesep: float,
 ) -> None:
-    """Build dependency graph for a chart.
+    """Helm chart dependency graph analyser.
 
-    Resolves the dependency tree recursively and evaluates conditions
-    against provided values.
+    Builds the dependency graph for the chart at CHART_PATH, resolves the
+    tree recursively and evaluates conditions against provided values.
     """
     # Build graph
     if use_helm_show:

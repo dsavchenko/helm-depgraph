@@ -541,6 +541,14 @@ class TestGetComputedValues:
             get_computed_values(self.FIXTURE, helm_bin="/nonexistent/helm")
 
     def test_cli_exits_nonzero_when_helm_fails(self) -> None:
-        result = CliRunner().invoke(main, ["build", str(self.FIXTURE), "--helm-bin", "false"])
+        result = CliRunner().invoke(main, [str(self.FIXTURE), "--helm-bin", "false"])
         assert result.exit_code == 1
         assert "helm install --dry-run failed" in result.output
+
+    def test_cli_help_and_version(self) -> None:
+        assert CliRunner().invoke(main, ["--help"]).exit_code == 0
+        assert CliRunner().invoke(main, ["--version"]).exit_code == 0
+
+    def test_cli_rejects_legacy_build_subcommand(self) -> None:
+        result = CliRunner().invoke(main, ["build", str(self.FIXTURE)])
+        assert result.exit_code == 2

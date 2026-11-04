@@ -42,10 +42,10 @@ uv pip install .
 ## Usage
 
 ```bash
-helm-analyse build <chart_path> [options]
+helm-analyse <chart_path> [options]
 ```
 
-The `build` command resolves the dependency tree for the chart at `chart_path` and evaluates its conditions against the merged values.
+`helm-analyse` resolves the dependency tree for the chart at `chart_path` and evaluates its conditions against the merged values.
 
 ### Options
 
@@ -64,22 +64,22 @@ The `build` command resolves the dependency tree for the chart at `chart_path` a
 
 ```bash
 # Text tree (default)
-helm-analyse build ./mychart
+helm-analyse ./mychart
 
 # Text tree with values
-helm-analyse build ./mychart -f values.yaml
+helm-analyse ./mychart -f values.yaml
 
 # JSON output
-helm-analyse build ./mychart --format json
+helm-analyse ./mychart --format json
 
 # DOT output
-helm-analyse build ./mychart --format dot > graph.dot
+helm-analyse ./mychart --format dot > graph.dot
 
 # Render the DOT to an image with Graphviz
 dot -Tpng graph.dot -o graph.png
 
 # Wider layer spacing in the rendered image
-helm-analyse build ./mychart --format dot --ranksep 2.0 --nodesep 0.8 | dot -Tpng -o graph.png
+helm-analyse ./mychart --format dot --ranksep 2.0 --nodesep 0.8 | dot -Tpng -o graph.png
 ```
 
 ## Output formats
@@ -127,7 +127,7 @@ The DOT header includes `ranksep` and `nodesep`, which control the vertical spac
 
 ## How conditions are evaluated
 
-Helm conditions are comma-separated paths; the **first path holding a boolean wins**, and missing or non-boolean paths are skipped (with a warning for non-boolean values). Tags: any tag `true` enables the dependency; otherwise any tag `false` disables it; unset tags have no effect. A decisive condition overrides tags. Library charts are evaluated like any other chart. Because condition paths are relative to the parent's values scope, `helm-analyse` merges each parent's block with the root merged values (obtained via `helm install --dry-run=client --debug`, parsed from the `COMPUTED VALUES:` block) to correctly resolve grandparent and diamond cases. If helm fails or its output has no `COMPUTED VALUES:` block, `build` exits with an error showing helm's stderr.
+Helm conditions are comma-separated paths; the **first path holding a boolean wins**, and missing or non-boolean paths are skipped (with a warning for non-boolean values). Tags: any tag `true` enables the dependency; otherwise any tag `false` disables it; unset tags have no effect. A decisive condition overrides tags. Library charts are evaluated like any other chart. Because condition paths are relative to the parent's values scope, `helm-analyse` merges each parent's block with the root merged values (obtained via `helm install --dry-run=client --debug`, parsed from the `COMPUTED VALUES:` block) to correctly resolve grandparent and diamond cases. If helm fails or its output has no `COMPUTED VALUES:` block, `helm-analyse` exits with an error showing helm's stderr.
 
 The two design-coupled entry points are:
 
@@ -165,7 +165,7 @@ uv run pytest tests/test_conditions.py::TestChartStatus::test_diamond_child_disa
 ```
 src/helm_analyse/
 ├── __init__.py      # Package version
-├── cli.py           # Click CLI (build command)
+├── cli.py           # Click CLI (single command)
 ├── graph.py         # Occurrence/DependencyGraph models, helm CLI integration
 ├── conditions.py    # Condition/tag evaluator per Helm spec
 └── output.py        # Text tree, JSON, DOT formatters
