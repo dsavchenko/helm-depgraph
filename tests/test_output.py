@@ -87,18 +87,49 @@ class TestFormatDot:
         dot = format_dot(_build_graph())
         assert "label" not in _edge_line(dot, "root", "sub1")
 
-    def test_versions_in_node_label(self) -> None:
+    @staticmethod
+    def _two_version_graph(
+        on_21: bool, on_24: bool, chart_type: str | None = None
+    ) -> DependencyGraph:
+        """Chart 'common' pinned at 2.1 (root/common) and 2.4 (root/a/common)."""
         root = Occurrence(name="root", version="1.0.0", enabled=True)
         a = Occurrence(name="a", version="1.0.0", enabled=True)
-        a.children["common"] = Occurrence(name="common", version="2.4", enabled=True)
+        a.children["common"] = Occurrence(
+            name="common", version="2.4", chart_type=chart_type, enabled=on_24
+        )
         root.children["a"] = a
-        root.children["common"] = Occurrence(name="common", version="2.1", enabled=True)
+        root.children["common"] = Occurrence(
+            name="common", version="2.1", chart_type=chart_type, enabled=on_21
+        )
         graph = DependencyGraph(root=root)
         graph.flatten()
+        return graph
 
-        dot = format_dot(graph)
-        assert 'label="common\\n2.1, 2.4"' in dot
+    def test_versions_in_node_label(self) -> None:
+        dot = format_dot(self._two_version_graph(on_21=True, on_24=True))
+        assert "label=<common<br/><b>2.1</b>, <b>2.4</b>>" in dot
         assert sum(1 for line in dot.split("\n") if line.startswith('  "common" [')) == 1
+        _assert_valid_dot(dot)
+
+    def test_only_deployed_version_bold(self) -> None:
+        dot = format_dot(self._two_version_graph(on_21=False, on_24=True))
+        assert "label=<common<br/>2.1, <b>2.4</b>>" in dot
+        _assert_valid_dot(dot)
+
+    def test_no_bold_when_no_version_deployed(self) -> None:
+        dot = format_dot(self._two_version_graph(on_21=False, on_24=False))
+        assert "label=<common<br/>2.1, 2.4>" in dot
+
+    def test_single_version_label_plain(self) -> None:
+        dot = format_dot(_build_graph())
+        assert 'label="sub1\\n0.1.0"' in dot
+        assert "<b>" not in dot
+
+    def test_multi_version_library_label(self) -> None:
+        graph = self._two_version_graph(on_21=True, on_24=False, chart_type="library")
+        dot = format_dot(graph, hide_libraries=False)
+        assert "label=<common<br/><b>2.1</b>, 2.4<br/>(library)>" in dot
+        _assert_valid_dot(dot)
 
     def test_default_spacing(self) -> None:
         dot = format_dot(_build_graph())

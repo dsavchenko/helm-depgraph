@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import json
 from typing import Any
 
@@ -194,16 +195,12 @@ def format_dot(
     for node in visible.values():
         charts.setdefault(node.name, node)
     for name, node in charts.items():
-        label = f"{name}\\n{', '.join(graph.chart_versions(name))}"
-        if _is_library(node):
-            label += "\\n(library)"
+        label = _chart_label(graph, name, library=_is_library(node))
         if chart_status(graph, name):
             fill, style, border = "lightgreen", "filled", "darkgreen"
         else:
             fill, style, border = "mistyrose", "filled,dashed", "grey"
-        lines.append(
-            f'  "{name}" [label="{label}" fillcolor={fill} style="{style}" color={border}];'
-        )
+        lines.append(f'  "{name}" [label={label} fillcolor={fill} style="{style}" color={border}];')
 
     # Edges: (parent chart, alias, child chart) -> statuses of the occurrences it covers
     edges: dict[tuple[str, str, str], list[bool]] = {}
@@ -222,6 +219,29 @@ def format_dot(
     lines.append("}")
 
     return "\n".join(lines)
+
+
+def _chart_label(graph: DependencyGraph, name: str, library: bool) -> str:
+    """Build a DOT node label: chart name, its versions, and a library marker.
+
+    When a chart pins several versions, the label is HTML-like and the versions
+    with at least one occurrence on (the deployed ones) are bold.
+    """
+    versions = graph.chart_versions(name)
+    if len(versions) < 2:
+        label = f"{name}\\n{', '.join(versions)}"
+        if library:
+            label += "\\n(library)"
+        return f'"{label}"'
+
+    deployed = {o.version for o in graph.occurrences_of(name).values() if o.enabled is True}
+    shown = ", ".join(
+        f"<b>{html.escape(v)}</b>" if v in deployed else html.escape(v) for v in versions
+    )
+    label = f"{html.escape(name)}<br/>{shown}"
+    if library:
+        label += "<br/>(library)"
+    return f"<{label}>"
 
 
 def _status_word(enabled: bool) -> str:
