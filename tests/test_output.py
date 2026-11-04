@@ -7,7 +7,14 @@ import tempfile
 import pytest
 
 from helm_analyse.graph import DependencyGraph, Occurrence
-from helm_analyse.output import format_dot, format_json, format_text
+from helm_analyse.output import (
+    format_dot,
+    format_json,
+    format_mermaid,
+    format_plantuml,
+    format_text,
+    render_dot,
+)
 
 
 def _build_graph() -> DependencyGraph:
@@ -503,3 +510,69 @@ class TestMultiPathEnabled:
         graph.flatten()
 
         assert 'style="dashed"' in _edge_line(format_dot(graph), "mid", "leaf")
+
+
+def _aliased_graph() -> DependencyGraph:
+    """root -> db (alias db-main, on), root -> db (alias db-audit, off)."""
+    root = Occurrence(name="root", version="1.0.0", enabled=True)
+    root.children["db-main"] = Occurrence(name="db", version="1.0", alias="db-main", enabled=True)
+    root.children["db-audit"] = Occurrence(
+        name="db", version="1.0", alias="db-audit", enabled=False
+    )
+    root.children["off"] = Occurrence(name="off", version="0.1", enabled=False)
+    graph = DependencyGraph(root=root)
+    graph.flatten()
+    return graph
+
+
+class TestFormatMermaid:
+    def test_structure(self) -> None:
+        out = format_mermaid(_aliased_graph())
+        assert out.startswith("flowchart TD")
+        assert '  n0["root<br/>1.0.0"]' in out
+        assert "  class n0,n1 enabled" in out
+        assert "  class n2 disabled" in out
+
+    def test_edges(self) -> None:
+        out = format_mermaid(_aliased_graph())
+        assert '  n0 -->|"db-main"| n1' in out
+        assert '  n0 -.->|"db-audit"| n1' in out
+        assert "  n0 -.-> n2" in out
+
+    def test_unevaluated_raises(self) -> None:
+        graph = _aliased_graph()
+        graph.root.enabled = None
+        with pytest.raises(ValueError):
+            format_mermaid(graph)
+
+
+class TestFormatPlantuml:
+    def test_structure(self) -> None:
+        out = format_plantuml(_aliased_graph())
+        assert out.startswith("@startuml")
+        assert out.endswith("@enduml")
+        assert 'rectangle "root\\n1.0.0" as n0 #lightgreen;line:darkgreen' in out
+        assert 'rectangle "off\\n0.1" as n2 #mistyrose;line:grey;line.dashed' in out
+
+    def test_edges(self) -> None:
+        out = format_plantuml(_aliased_graph())
+        assert "n0 --> n1 : db-main" in out
+        assert "n0 ..> n1 : db-audit" in out
+        assert "n0 ..> n2" in out
+
+
+class TestRenderDot:
+    def test_svg(self) -> None:
+        svg = render_dot(format_dot(_build_graph()), "svg")
+        assert b"<svg" in svg
+
+    def test_png(self) -> None:
+        assert render_dot(format_dot(_build_graph()), "png").startswith(b"\x89PNG")
+
+    def test_missing_binary(self) -> None:
+        with pytest.raises(RuntimeError, match="not found"):
+            render_dot("digraph {}", "svg", dot_bin="no-such-dot-binary")
+
+    def test_invalid_dot(self) -> None:
+        with pytest.raises(RuntimeError, match="failed"):
+            render_dot("not dot", "svg")

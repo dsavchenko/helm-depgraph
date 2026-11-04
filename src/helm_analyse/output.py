@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+from dataclasses import dataclass
 from typing import Any
 
 from helm_analyse.conditions import chart_status
@@ -154,6 +156,57 @@ def format_json(
     return json.dumps({"occurrences": occurrences, "charts": list(charts.values())}, indent=2)
 
 
+@dataclass(frozen=True)
+class _GraphNode:
+    """A chart node of the diagram formats."""
+
+    name: str
+    lines: list[str]
+    enabled: bool
+
+
+@dataclass(frozen=True)
+class _GraphEdge:
+    """A (parent chart, alias, child chart) dependency; dashed only if all occurrences are off."""
+
+    parent: str
+    child: str
+    alias: str | None
+    enabled: bool
+
+
+def _diagram_model(
+    graph: DependencyGraph, hide_libraries: bool
+) -> tuple[list[_GraphNode], list[_GraphEdge]]:
+    """Collect one node per chart (in order of first appearance) and one edge per dependency."""
+    _require_evaluated(graph)
+    visible = _visible_occurrences(graph, hide_libraries)
+
+    charts: dict[str, Occurrence] = {}
+    for node in visible.values():
+        charts.setdefault(node.name, node)
+    nodes = [
+        _GraphNode(
+            name,
+            _chart_label_lines(graph, name, library=_is_library(node)),
+            bool(chart_status(graph, name)),
+        )
+        for name, node in charts.items()
+    ]
+
+    statuses: dict[tuple[str, str, str], list[bool]] = {}
+    for path, node in visible.items():
+        if node is graph.root:
+            continue
+        parent = graph.occurrences[path.rsplit("/", 1)[0]]
+        statuses.setdefault((parent.name, node.scope_key, node.name), []).append(bool(node.enabled))
+    edges = [
+        _GraphEdge(parent, child, alias if alias != child else None, any(enabled))
+        for (parent, alias, child), enabled in statuses.items()
+    ]
+    return nodes, edges
+
+
 def format_dot(
     graph: DependencyGraph,
     hide_libraries: bool = True,
@@ -175,7 +228,7 @@ def format_dot(
     Returns:
         DOT string.
     """
-    _require_evaluated(graph)
+    nodes, edges = _diagram_model(graph, hide_libraries)
     lines = [
         "digraph helm_deps {",
         "  rankdir=TB;",
@@ -187,41 +240,89 @@ def format_dot(
         lines.append(f"  nodesep={nodesep};")
     lines.append("")
 
-    visible = _visible_occurrences(graph, hide_libraries)
-
-    # Nodes: one per chart, in order of first appearance
-    charts: dict[str, Occurrence] = {}
-    for node in visible.values():
-        charts.setdefault(node.name, node)
-    for name, node in charts.items():
-        label = _chart_label(graph, name, library=_is_library(node))
-        if chart_status(graph, name):
+    for n in nodes:
+        label = '"' + "\\n".join(n.lines) + '"'
+        if n.enabled:
             fill, style, border = "lightgreen", "filled", "darkgreen"
         else:
             fill, style, border = "mistyrose", "filled,dashed", "grey"
-        lines.append(f'  "{name}" [label={label} fillcolor={fill} style="{style}" color={border}];')
+        lines.append(
+            f'  "{n.name}" [label={label} fillcolor={fill} style="{style}" color={border}];'
+        )
 
-    # Edges: (parent chart, alias, child chart) -> statuses of the occurrences it covers
-    edges: dict[tuple[str, str, str], list[bool]] = {}
-    for path, node in visible.items():
-        if node is graph.root:
-            continue
-        parent = graph.occurrences[path.rsplit("/", 1)[0]]
-        key = (parent.name, node.scope_key, node.name)
-        edges.setdefault(key, []).append(bool(node.enabled))
-    for (parent_name, scope_key, child_name), statuses in edges.items():
-        attrs = f'style="{"solid" if any(statuses) else "dashed"}"'
-        if scope_key != child_name:
-            attrs += f' label="{scope_key}"'
-        lines.append(f'  "{parent_name}" -> "{child_name}" [{attrs}];')
+    for e in edges:
+        attrs = f'style="{"solid" if e.enabled else "dashed"}"'
+        if e.alias is not None:
+            attrs += f' label="{e.alias}"'
+        lines.append(f'  "{e.parent}" -> "{e.child}" [{attrs}];')
 
     lines.append("}")
 
     return "\n".join(lines)
 
 
-def _chart_label(graph: DependencyGraph, name: str, library: bool) -> str:
-    """Build a DOT node label: chart name, its versions, and a library marker.
+def format_mermaid(graph: DependencyGraph, hide_libraries: bool = True) -> str:
+    """Format graph as a Mermaid flowchart (same nodes, edges and styling as DOT)."""
+    nodes, edges = _diagram_model(graph, hide_libraries)
+    ids = {n.name: f"n{i}" for i, n in enumerate(nodes)}
+
+    def quote(text: str) -> str:
+        return '"' + text.replace('"', "#quot;") + '"'
+
+    lines = ["flowchart TD"]
+    for n in nodes:
+        lines.append(f"  {ids[n.name]}[{quote('<br/>'.join(n.lines))}]")
+    for e in edges:
+        arrow = "-->" if e.enabled else "-.->"
+        if e.alias is not None:
+            arrow += f"|{quote(e.alias)}|"
+        lines.append(f"  {ids[e.parent]} {arrow} {ids[e.child]}")
+    lines.append("  classDef enabled fill:#90ee90,stroke:#006400,color:#000")
+    lines.append("  classDef disabled fill:#ffe4e1,stroke:#808080,stroke-dasharray:5 5,color:#000")
+    for cls, on in (("enabled", True), ("disabled", False)):
+        members = ",".join(ids[n.name] for n in nodes if n.enabled is on)
+        if members:
+            lines.append(f"  class {members} {cls}")
+    return "\n".join(lines)
+
+
+def format_plantuml(graph: DependencyGraph, hide_libraries: bool = True) -> str:
+    """Format graph as PlantUML (same nodes, edges and styling as DOT)."""
+    nodes, edges = _diagram_model(graph, hide_libraries)
+    ids = {n.name: f"n{i}" for i, n in enumerate(nodes)}
+
+    lines = ["@startuml", "skinparam shadowing false"]
+    for n in nodes:
+        label = "\\n".join(n.lines).replace('"', "'")
+        color = "#lightgreen;line:darkgreen" if n.enabled else "#mistyrose;line:grey;line.dashed"
+        lines.append(f'rectangle "{label}" as {ids[n.name]} {color}')
+    for e in edges:
+        arrow = "-->" if e.enabled else "..>"
+        text = f" : {e.alias}" if e.alias is not None else ""
+        lines.append(f"{ids[e.parent]} {arrow} {ids[e.child]}{text}")
+    lines.append("@enduml")
+    return "\n".join(lines)
+
+
+def render_dot(dot: str, image_format: str, dot_bin: str = "dot") -> bytes:
+    """Render DOT source to an image ("svg" or "png") with the Graphviz binary.
+
+    Raises:
+        RuntimeError: If Graphviz is missing or fails.
+    """
+    try:
+        result = subprocess.run(
+            [dot_bin, f"-T{image_format}"], input=dot.encode(), capture_output=True, check=False
+        )
+    except FileNotFoundError as e:
+        raise RuntimeError(f"Graphviz binary not found: {dot_bin}") from e
+    if result.returncode != 0:
+        raise RuntimeError(f"{dot_bin} failed: {result.stderr.decode(errors='replace')}")
+    return result.stdout
+
+
+def _chart_label_lines(graph: DependencyGraph, name: str, library: bool) -> list[str]:
+    """Build the label lines of a chart node: chart name, its versions, and a library marker.
 
     When a chart pins several versions, the versions with at least one
     occurrence on (the deployed ones) get one line each, followed by the
@@ -241,7 +342,7 @@ def _chart_label(graph: DependencyGraph, name: str, library: bool) -> str:
             lines.append(f"({', '.join(others)})")
     if library:
         lines.append("(library)")
-    return '"' + "\\n".join(lines) + '"'
+    return lines
 
 
 def _status_word(enabled: bool) -> str:

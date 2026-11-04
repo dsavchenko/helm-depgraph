@@ -13,6 +13,8 @@ CLI tool for building **Helm chart dependency graphs** and evaluating **conditio
   - **text** — human-readable tree with enabled/disabled status.
   - **json** — machine-readable node/edge data.
   - **dot** — Graphviz graph for rendering images.
+  - **mermaid** / **plantuml** — diagram source for Markdown renderers and PlantUML.
+  - **svg** / **png** — rendered image (needs the Graphviz `dot` binary).
 
 ## Requirements
 
@@ -52,7 +54,8 @@ helm-analyse <chart_path> [options]
 | Option | Default | Description |
 | ------ | ------- | ----------- |
 | `-f, --values <file>` | — | Values YAML file used during condition evaluation. |
-| `--format <text\|json\|dot>` | `text` | Output format. |
+| `--format <text\|json\|dot\|mermaid\|plantuml\|svg\|png>` | `text` | Output format. |
+| `-o, --output <file>` | stdout | Write output to a file. Needed for `png` on a terminal. |
 | `--duplicates / --no-duplicates` | off | Expand the subtree of a chart every time it occurs, instead of only the first time (text output). |
 | `--hide-libraries / --show-libraries` | hide | Exclude library charts from output. |
 | `--helm-bin <path>` | `helm` | Path to the helm binary. |
@@ -77,6 +80,14 @@ helm-analyse ./mychart --format dot > graph.dot
 
 # Render the DOT to an image with Graphviz
 dot -Tpng graph.dot -o graph.png
+
+# Render directly (svg/png use Graphviz)
+helm-analyse ./mychart --format svg -o graph.svg
+helm-analyse ./mychart --format png -o graph.png
+
+# Mermaid / PlantUML source
+helm-analyse ./mychart --format mermaid > graph.mmd
+helm-analyse ./mychart --format plantuml > graph.puml
 
 # Wider layer spacing in the rendered image
 helm-analyse ./mychart --format dot --ranksep 2.0 --nodesep 0.8 | dot -Tpng -o graph.png
@@ -125,6 +136,10 @@ An edge covers every occurrence of that dependency in the tree and is drawn `das
 
 The DOT header includes `ranksep` and `nodesep`, which control the vertical space between dependency layers and the horizontal space between siblings when rendered (see `--ranksep` / `--nodesep`).
 
+### mermaid, plantuml, svg, png
+
+`mermaid` and `plantuml` emit the same nodes, edges and styling as `dot` (green filled = on, pink dashed = off; dashed edges when every occurrence is off; alias edge labels), as a Mermaid `flowchart TD` and a PlantUML diagram. `--ranksep` and `--nodesep` do not apply. `svg` and `png` pipe the DOT output through the Graphviz `dot` binary, so they honour `--ranksep` / `--nodesep`.
+
 ## How conditions are evaluated
 
 Helm conditions are comma-separated paths; the **first path holding a boolean wins**, and missing or non-boolean paths are skipped (with a warning for non-boolean values). Tags: any tag `true` enables the dependency; otherwise any tag `false` disables it; unset tags have no effect. A decisive condition overrides tags. Library charts are evaluated like any other chart. Because condition paths are relative to the parent's values scope, `helm-analyse` merges each parent's block with the root merged values (obtained via `helm install --dry-run=client --debug`, parsed from the `COMPUTED VALUES:` block) to correctly resolve grandparent and diamond cases. If helm fails or its output has no `COMPUTED VALUES:` block, `helm-analyse` exits with an error showing helm's stderr.
@@ -168,5 +183,5 @@ src/helm_analyse/
 ├── cli.py           # Click CLI (single command)
 ├── graph.py         # Occurrence/DependencyGraph models, helm CLI integration
 ├── conditions.py    # Condition/tag evaluator per Helm spec
-└── output.py        # Text tree, JSON, DOT formatters
+└── output.py        # Text tree, JSON, DOT, Mermaid, PlantUML, image rendering
 ```

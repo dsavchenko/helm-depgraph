@@ -27,14 +27,14 @@ src/helm_analyse/
 ├── cli.py           # Click CLI (single command)
 ├── graph.py         # Occurrence/DependencyGraph models, helm CLI integration
 ├── conditions.py    # Condition/tag evaluator per Helm spec
-└── output.py        # Text tree, JSON, DOT formatters
+└── output.py        # Text tree, JSON, DOT, Mermaid, PlantUML, image rendering
 ```
 
 ## CLI usage
 
 ```bash
 # Build dependency graph
-helm-analyse <chart_path> [-f values.yaml] [--format text|json|dot] [--duplicates]
+helm-analyse <chart_path> [-f values.yaml] [--format text|json|dot|mermaid|plantuml|svg|png] [-o file] [--duplicates]
 ```
 
 ## Helm-specific notes
