@@ -114,7 +114,7 @@ Two flat lists:
 
 Graphviz DOT with **one node per chart** and **one edge per dependency** (parent chart, alias, child chart).
 
-Nodes show the chart name and every version pinned across its occurrences (e.g. `common` / `2.1, 2.4`). When a chart has several versions, the deployed ones (at least one occurrence on) are shown in **bold**. Fill and border encode the chart status:
+Nodes show the chart name and every version pinned across its occurrences (e.g. `common` / `2.1, 2.4`). When a chart has several versions, the deployed ones (at least one occurrence on) are listed one per line, with the rest in parentheses below. Fill and border encode the chart status:
 
 | Chart status | Fill | Border | Style |
 | ------------ | ---- | ------ | ----- |

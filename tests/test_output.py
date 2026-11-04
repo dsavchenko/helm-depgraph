@@ -107,18 +107,18 @@ class TestFormatDot:
 
     def test_versions_in_node_label(self) -> None:
         dot = format_dot(self._two_version_graph(on_21=True, on_24=True))
-        assert "label=<common<br/><b>2.1</b>, <b>2.4</b>>" in dot
+        assert 'label="common\\n2.1\\n2.4"' in dot
         assert sum(1 for line in dot.split("\n") if line.startswith('  "common" [')) == 1
         _assert_valid_dot(dot)
 
-    def test_only_deployed_version_bold(self) -> None:
+    def test_only_deployed_version_listed_first(self) -> None:
         dot = format_dot(self._two_version_graph(on_21=False, on_24=True))
-        assert "label=<common<br/>2.1, <b>2.4</b>>" in dot
+        assert 'label="common\\n2.4\\n(2.1)"' in dot
         _assert_valid_dot(dot)
 
-    def test_no_bold_when_no_version_deployed(self) -> None:
+    def test_no_deployed_version_all_in_parentheses(self) -> None:
         dot = format_dot(self._two_version_graph(on_21=False, on_24=False))
-        assert "label=<common<br/>2.1, 2.4>" in dot
+        assert 'label="common\\n(2.1, 2.4)"' in dot
 
     def test_single_version_label_plain(self) -> None:
         dot = format_dot(_build_graph())
@@ -128,7 +128,7 @@ class TestFormatDot:
     def test_multi_version_library_label(self) -> None:
         graph = self._two_version_graph(on_21=True, on_24=False, chart_type="library")
         dot = format_dot(graph, hide_libraries=False)
-        assert "label=<common<br/><b>2.1</b>, 2.4<br/>(library)>" in dot
+        assert 'label="common\\n2.1\\n(2.4)\\n(library)"' in dot
         _assert_valid_dot(dot)
 
     def test_default_spacing(self) -> None:

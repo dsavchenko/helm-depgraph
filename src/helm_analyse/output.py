@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import html
 import json
 from typing import Any
 
@@ -224,24 +223,25 @@ def format_dot(
 def _chart_label(graph: DependencyGraph, name: str, library: bool) -> str:
     """Build a DOT node label: chart name, its versions, and a library marker.
 
-    When a chart pins several versions, the label is HTML-like and the versions
-    with at least one occurrence on (the deployed ones) are bold.
+    When a chart pins several versions, the versions with at least one
+    occurrence on (the deployed ones) get one line each, followed by the
+    remaining versions on one line in parentheses. The label is plain text, not
+    HTML-like: SVG output anchors HTML-like text at its start, which breaks
+    centering whenever the viewer's font differs from the one Graphviz measured.
     """
     versions = graph.chart_versions(name)
+    lines = [name]
     if len(versions) < 2:
-        label = f"{name}\\n{', '.join(versions)}"
-        if library:
-            label += "\\n(library)"
-        return f'"{label}"'
-
-    deployed = {o.version for o in graph.occurrences_of(name).values() if o.enabled is True}
-    shown = ", ".join(
-        f"<b>{html.escape(v)}</b>" if v in deployed else html.escape(v) for v in versions
-    )
-    label = f"{html.escape(name)}<br/>{shown}"
+        lines.append(", ".join(versions))
+    else:
+        deployed = {o.version for o in graph.occurrences_of(name).values() if o.enabled is True}
+        lines += [v for v in versions if v in deployed]
+        others = [v for v in versions if v not in deployed]
+        if others:
+            lines.append(f"({', '.join(others)})")
     if library:
-        label += "<br/>(library)"
-    return f"<{label}>"
+        lines.append("(library)")
+    return '"' + "\\n".join(lines) + '"'
 
 
 def _status_word(enabled: bool) -> str:
