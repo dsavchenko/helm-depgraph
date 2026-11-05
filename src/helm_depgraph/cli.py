@@ -1,4 +1,4 @@
-"""CLI entrypoint for helm-analyse."""
+"""CLI entrypoint for helm-depgraph."""
 
 from __future__ import annotations
 
@@ -7,14 +7,14 @@ from pathlib import Path
 
 import click
 
-from helm_analyse.conditions import evaluate_conditions
-from helm_analyse.graph import (
+from helm_depgraph.conditions import evaluate_conditions
+from helm_depgraph.graph import (
     ComputedValuesError,
     build_graph,
     build_graph_from_helm_show,
     get_computed_values,
 )
-from helm_analyse.output import (
+from helm_depgraph.output import (
     format_dot,
     format_json,
     format_mermaid,

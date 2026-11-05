@@ -191,7 +191,7 @@ wheels = [
 ]
 
 [[package]]
-name = "helm-analyse"
+name = "helm-depgraph"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

@@ -7,8 +7,8 @@ import subprocess
 from dataclasses import dataclass
 from typing import Any
 
-from helm_analyse.conditions import chart_status
-from helm_analyse.graph import DependencyGraph, Occurrence
+from helm_depgraph.conditions import chart_status
+from helm_depgraph.graph import DependencyGraph, Occurrence
 
 
 def _is_library(node: Occurrence) -> bool:

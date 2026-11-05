@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from helm_analyse.graph import DependencyGraph, Occurrence
+from helm_depgraph.graph import DependencyGraph, Occurrence
 
 logger = logging.getLogger(__name__)
 

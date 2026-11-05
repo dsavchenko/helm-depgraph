@@ -7,7 +7,7 @@ Python CLI tool for building Helm chart dependency graphs and evaluating conditi
 ## Conventions
 
 - **Python version**: 3.12+
-- **Dependency management**: `uv` (preferred)
+- **Dependency management**: `uv` (preferred). Dev tools (ruff, mypy, pytest) are in the `dev` extra: `uv sync --extra dev`. A plain `uv sync` installs only runtime dependencies.
 - **Linting**: `ruff check .`
 - **Formatting**: `ruff format .`
 - **Type checking**: `mypy .`
@@ -22,7 +22,7 @@ uv run ruff format . && uv run ruff check . && uv run mypy . && uv run pytest te
 ## Project structure
 
 ```
-src/helm_analyse/
+src/helm_depgraph/
 ├── __init__.py      # Package version
 ├── cli.py           # Click CLI (single command)
 ├── graph.py         # Occurrence/DependencyGraph models, helm CLI integration
@@ -34,7 +34,7 @@ src/helm_analyse/
 
 ```bash
 # Build dependency graph
-helm-analyse <chart_path> [-f values.yaml] [--format text|json|dot|mermaid|plantuml|svg|png] [-o file] [--duplicates]
+helm-depgraph <chart_path> [-f values.yaml] [--format text|json|dot|mermaid|plantuml|svg|png] [-o file] [--duplicates]
 ```
 
 ## Helm-specific notes

@@ -1,4 +1,4 @@
-# helm-analyse
+# helm-depgraph
 
 Builds the dependency graph of a Helm chart and works out which dependencies Helm would actually render for a given set of values. Helm's own behaviour is the definition of every evaluation rule here.
 

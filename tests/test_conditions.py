@@ -5,13 +5,13 @@ from pathlib import Path
 
 import pytest
 
-from helm_analyse.conditions import (
+from helm_depgraph.conditions import (
     _propagate_disabled,
     _resolve_path,
     chart_status,
     evaluate_conditions,
 )
-from helm_analyse.graph import DependencyGraph, Occurrence
+from helm_depgraph.graph import DependencyGraph, Occurrence
 
 
 class TestResolvePath:
@@ -100,7 +100,7 @@ class TestEvaluateConditions:
 
     def test_non_boolean_condition_warns(self, caplog: pytest.LogCaptureFixture) -> None:
         graph = self._make_graph(conditions=["subchart.enabled"])
-        with caplog.at_level(logging.WARNING, logger="helm_analyse.conditions"):
+        with caplog.at_level(logging.WARNING, logger="helm_depgraph.conditions"):
             evaluate_conditions(graph, {"subchart": {"enabled": "yes"}})
         assert "Condition path 'subchart.enabled' for chart subchart" in caplog.text
 
@@ -605,7 +605,7 @@ class TestComputedValuesIntegration:
 
     def _build_and_evaluate(self, values_file: Path | None = None) -> DependencyGraph:
         """Build graph and evaluate conditions using computed values."""
-        from helm_analyse.graph import build_graph, get_computed_values
+        from helm_depgraph.graph import build_graph, get_computed_values
 
         graph = build_graph(self.FIXTURE, use_helm_build=False)
         computed = get_computed_values(self.FIXTURE, values_file=values_file)
@@ -650,7 +650,7 @@ class TestComputedValuesIntegration:
 
     def test_with_values_file_override(self, tmp_path: Path) -> None:
         """Values file override changes computed values."""
-        from helm_analyse.graph import build_graph, get_computed_values
+        from helm_depgraph.graph import build_graph, get_computed_values
 
         values_file = tmp_path / "values.yaml"
         values_file.write_text("grandparent:\n  parent-c:\n    child:\n      enabled: false\n")

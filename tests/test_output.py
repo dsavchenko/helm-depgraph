@@ -6,8 +6,8 @@ import tempfile
 
 import pytest
 
-from helm_analyse.graph import DependencyGraph, Occurrence
-from helm_analyse.output import (
+from helm_depgraph.graph import DependencyGraph, Occurrence
+from helm_depgraph.output import (
     format_dot,
     format_json,
     format_mermaid,

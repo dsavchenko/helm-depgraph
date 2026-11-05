@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from helm_analyse.cli import main
-from helm_analyse.graph import (
+from helm_depgraph.cli import main
+from helm_depgraph.graph import (
     ComputedValuesError,
     DependencyGraph,
     Occurrence,
@@ -200,7 +200,7 @@ version: 2.0.0
 """
         )
 
-        from helm_analyse.graph import build_graph
+        from helm_depgraph.graph import build_graph
 
         graph = build_graph(root_chart, use_helm_build=False)
 
@@ -257,7 +257,7 @@ version: 1.0.0
 """
         )
 
-        from helm_analyse.graph import build_graph
+        from helm_depgraph.graph import build_graph
 
         graph = build_graph(root_chart, use_helm_build=False)
 
@@ -320,7 +320,7 @@ version: 0.2.0
         with tarfile.open(tgz_path, "w:gz") as tf:
             tf.add(sub1_dir, arcname="sub1")
 
-        from helm_analyse.graph import build_graph
+        from helm_depgraph.graph import build_graph
 
         graph = build_graph(root_chart, use_helm_build=False)
 
@@ -381,7 +381,7 @@ version: 0.1.0
         with tarfile.open(charts_dir / "parent-1.0.0.tgz", "w:gz") as tf:
             tf.add(parent_dir, arcname="parent")
 
-        from helm_analyse.graph import build_graph
+        from helm_depgraph.graph import build_graph
 
         graph = build_graph(root_chart, use_helm_build=False)
 
@@ -488,7 +488,7 @@ class TestGetComputedValues:
     FIXTURE = Path(__file__).parent / "fixtures" / "charts" / "test-values-analysis"
 
     def test_returns_computed_values(self) -> None:
-        from helm_analyse.graph import get_computed_values
+        from helm_depgraph.graph import get_computed_values
 
         result = get_computed_values(self.FIXTURE)
         assert isinstance(result, dict)
@@ -497,7 +497,7 @@ class TestGetComputedValues:
 
     def test_shared_enabled_via_parent_a(self) -> None:
         """parent-a enables shared (shared.enabled: true) in its values."""
-        from helm_analyse.graph import get_computed_values
+        from helm_depgraph.graph import get_computed_values
 
         result = get_computed_values(self.FIXTURE)
         # parent-a's values override shared's default (false)
@@ -505,14 +505,14 @@ class TestGetComputedValues:
 
     def test_child_enabled_via_grandparent(self) -> None:
         """grandparent sets parent-c.child.enabled: true, overriding parent-c default."""
-        from helm_analyse.graph import get_computed_values
+        from helm_depgraph.graph import get_computed_values
 
         result = get_computed_values(self.FIXTURE)
         assert result["grandparent"]["parent-c"]["child"]["enabled"] is True
 
     def test_deep_nesting_preserves_values(self) -> None:
         """level1 → level2 → level3 → level4 condition chain is preserved."""
-        from helm_analyse.graph import get_computed_values
+        from helm_depgraph.graph import get_computed_values
 
         result = get_computed_values(self.FIXTURE)
         assert result["level1"]["level2"]["enabled"] is True
@@ -521,7 +521,7 @@ class TestGetComputedValues:
 
     def test_with_values_file(self, tmp_path: Path) -> None:
         """Values file overrides are reflected in computed values."""
-        from helm_analyse.graph import get_computed_values
+        from helm_depgraph.graph import get_computed_values
 
         values_file = tmp_path / "values.yaml"
         values_file.write_text("global:\n  env: production\n")
@@ -529,13 +529,13 @@ class TestGetComputedValues:
         assert result["global"]["env"] == "production"
 
     def test_helm_failure_raises(self) -> None:
-        from helm_analyse.graph import get_computed_values
+        from helm_depgraph.graph import get_computed_values
 
         with pytest.raises(ComputedValuesError, match="exit 1"):
             get_computed_values(self.FIXTURE, helm_bin="false")
 
     def test_missing_helm_binary_raises(self) -> None:
-        from helm_analyse.graph import get_computed_values
+        from helm_depgraph.graph import get_computed_values
 
         with pytest.raises(ComputedValuesError, match="not found"):
             get_computed_values(self.FIXTURE, helm_bin="/nonexistent/helm")

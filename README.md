@@ -1,8 +1,8 @@
-# helm-analyse
+# helm-depgraph
 
 CLI tool for building **Helm chart dependency graphs** and evaluating **conditional dependencies** (recursively) against merged values.
 
-`helm-analyse` parses `Chart.yaml` dependency declarations to build the full dependency tree, then resolves `condition` and `tag` expressions against the root chart's merged values to decide whether each dependency is enabled or disabled. It renders the result as a text tree, JSON, or a Graphviz DOT graph — no manifest/template analysis.
+`helm-depgraph` parses `Chart.yaml` dependency declarations to build the full dependency tree, then resolves `condition` and `tag` expressions against the root chart's merged values to decide whether each dependency is enabled or disabled. It renders the result as a text tree, JSON, or a Graphviz DOT graph — no manifest/template analysis.
 
 ## Features
 
@@ -29,10 +29,10 @@ With [uv](https://docs.astral.sh/uv/) (recommended):
 uv sync --extra dev
 ```
 
-Then the `helm-analyse` command is available via `uv run`:
+Then the `helm-depgraph` command is available via `uv run`:
 
 ```bash
-uv run helm-analyse --help
+uv run helm-depgraph --help
 ```
 
 To install the CLI into your environment:
@@ -44,10 +44,10 @@ uv pip install .
 ## Usage
 
 ```bash
-helm-analyse <chart_path> [options]
+helm-depgraph <chart_path> [options]
 ```
 
-`helm-analyse` resolves the dependency tree for the chart at `chart_path` and evaluates its conditions against the merged values.
+`helm-depgraph` resolves the dependency tree for the chart at `chart_path` and evaluates its conditions against the merged values.
 
 ### Options
 
@@ -67,30 +67,30 @@ helm-analyse <chart_path> [options]
 
 ```bash
 # Text tree (default)
-helm-analyse ./mychart
+helm-depgraph ./mychart
 
 # Text tree with values
-helm-analyse ./mychart -f values.yaml
+helm-depgraph ./mychart -f values.yaml
 
 # JSON output
-helm-analyse ./mychart --format json
+helm-depgraph ./mychart --format json
 
 # DOT output
-helm-analyse ./mychart --format dot > graph.dot
+helm-depgraph ./mychart --format dot > graph.dot
 
 # Render the DOT to an image with Graphviz
 dot -Tpng graph.dot -o graph.png
 
 # Render directly (svg/png use Graphviz)
-helm-analyse ./mychart --format svg -o graph.svg
-helm-analyse ./mychart --format png -o graph.png
+helm-depgraph ./mychart --format svg -o graph.svg
+helm-depgraph ./mychart --format png -o graph.png
 
 # Mermaid / PlantUML source
-helm-analyse ./mychart --format mermaid > graph.mmd
-helm-analyse ./mychart --format plantuml > graph.puml
+helm-depgraph ./mychart --format mermaid > graph.mmd
+helm-depgraph ./mychart --format plantuml > graph.puml
 
 # Wider layer spacing in the rendered image
-helm-analyse ./mychart --format dot --ranksep 2.0 --nodesep 0.8 | dot -Tpng -o graph.png
+helm-depgraph ./mychart --format dot --ranksep 2.0 --nodesep 0.8 | dot -Tpng -o graph.png
 ```
 
 ## Output formats
@@ -142,7 +142,7 @@ The DOT header includes `ranksep` and `nodesep`, which control the vertical spac
 
 ## How conditions are evaluated
 
-Helm conditions are comma-separated paths; the **first path holding a boolean wins**, and missing or non-boolean paths are skipped (with a warning for non-boolean values). Tags: any tag `true` enables the dependency; otherwise any tag `false` disables it; unset tags have no effect. A decisive condition overrides tags. Library charts are evaluated like any other chart. Because condition paths are relative to the parent's values scope, `helm-analyse` merges each parent's block with the root merged values (obtained via `helm install --dry-run=client --debug`, parsed from the `COMPUTED VALUES:` block) to correctly resolve grandparent and diamond cases. If helm fails or its output has no `COMPUTED VALUES:` block, `helm-analyse` exits with an error showing helm's stderr.
+Helm conditions are comma-separated paths; the **first path holding a boolean wins**, and missing or non-boolean paths are skipped (with a warning for non-boolean values). Tags: any tag `true` enables the dependency; otherwise any tag `false` disables it; unset tags have no effect. A decisive condition overrides tags. Library charts are evaluated like any other chart. Because condition paths are relative to the parent's values scope, `helm-depgraph` merges each parent's block with the root merged values (obtained via `helm install --dry-run=client --debug`, parsed from the `COMPUTED VALUES:` block) to correctly resolve grandparent and diamond cases. If helm fails or its output has no `COMPUTED VALUES:` block, `helm-depgraph` exits with an error showing helm's stderr.
 
 The two design-coupled entry points are:
 
@@ -178,7 +178,7 @@ uv run pytest tests/test_conditions.py::TestChartStatus::test_diamond_child_disa
 ### Project layout
 
 ```
-src/helm_analyse/
+src/helm_depgraph/
 ├── __init__.py      # Package version
 ├── cli.py           # Click CLI (single command)
 ├── graph.py         # Occurrence/DependencyGraph models, helm CLI integration

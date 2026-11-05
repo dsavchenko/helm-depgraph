@@ -19,7 +19,7 @@ Single-context repo:
 ├── docs/adr/
 │   ├── 0001-<decision>.md
 │   └── 0002-<decision>.md
-└── src/helm_analyse/
+└── src/helm_depgraph/
 ```
 
 ## Use the glossary's vocabulary

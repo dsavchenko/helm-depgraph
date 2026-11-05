@@ -1,7 +1,7 @@
 [project]
-name = "helm-analyse"
+name = "helm-depgraph"
 version = "0.1.0"
-description = "CLI tool for building Helm chart dependency graphs and analysing rendered manifests"
+description = "CLI tool for building Helm chart dependency graphs and evaluating conditional dependencies against merged values"
 license = { text = "MIT" }
 requires-python = ">=3.12"
 dependencies = [
@@ -19,14 +19,14 @@ dev = [
 ]
 
 [project.scripts]
-helm-analyse = "helm_analyse.cli:main"
+helm-depgraph = "helm_depgraph.cli:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/helm_analyse"]
+packages = ["src/helm_depgraph"]
 
 [tool.ruff]
 target-version = "py312"

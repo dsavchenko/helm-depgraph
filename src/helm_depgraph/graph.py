@@ -152,7 +152,7 @@ def build_graph(
     if original_charts_dir.is_dir() and any(
         p.suffix == ".tgz" for p in original_charts_dir.iterdir()
     ):
-        charts_dir = Path(tempfile.mkdtemp(prefix="helm-analyse-"))
+        charts_dir = Path(tempfile.mkdtemp(prefix="helm-depgraph-"))
 
     try:
         _resolve_children(
@@ -353,7 +353,7 @@ def get_computed_values(
         "--debug",
         "-n",
         "default",
-        "helm-analyse-tmp",
+        "helm-depgraph-tmp",
         str(chart_path),
     ]
     if values_file is not None:
