@@ -34,11 +34,12 @@ src/helm_depgraph/
 
 ```bash
 # Build dependency graph
-helm-depgraph <chart_path> [-f values.yaml] [--format text|json|dot|mermaid|plantuml|svg|png] [-o file] [--duplicates]
+helm-depgraph <chart_path|oci://ref> [--chart-version V] [--plain-http] [-f values.yaml] [--format text|json|dot|mermaid|plantuml|svg|png] [-o file] [--duplicates]
 ```
 
 ## Helm-specific notes
 
+- `oci://` refs are pulled with `helm pull --untar` into a temp dir (`pull_oci_chart`), then handled like a local chart; `helm dependency build` fetches OCI subcharts. Auth comes from `helm registry login`.
 - Graph built by parsing `Chart.yaml` files from `charts/` directory (requires `helm dependency build` or local charts).
 - Condition paths are comma-separated; the first path holding a boolean wins, missing/non-boolean paths are skipped (per Helm spec).
 - Tags: any tag `true` enables; otherwise any tag `false` disables; unset tags have no effect. A decisive condition overrides tags.

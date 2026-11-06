@@ -2,17 +2,22 @@
 
 from __future__ import annotations
 
+import contextlib
 import sys
+import tempfile
 from pathlib import Path
 
 import click
 
 from helm_depgraph.conditions import evaluate_conditions
 from helm_depgraph.graph import (
+    ChartPullError,
     ComputedValuesError,
     build_graph,
     build_graph_from_helm_show,
     get_computed_values,
+    is_oci_ref,
+    pull_oci_chart,
 )
 from helm_depgraph.output import (
     format_dot,
@@ -26,7 +31,11 @@ from helm_depgraph.output import (
 
 @click.command()
 @click.version_option()
-@click.argument("chart_path", type=click.Path(exists=True, path_type=Path))
+@click.argument("chart_ref")
+@click.option("--plain-http", is_flag=True, help="Use HTTP when pulling OCI charts")
+@click.option(
+    "--chart-version", "chart_version", help="Chart version to pull (OCI references only)"
+)
 @click.option("-f", "--values", "values_file", type=click.Path(exists=True, path_type=Path))
 @click.option(
     "--format",
@@ -54,7 +63,9 @@ from helm_depgraph.output import (
 @click.option("--ranksep", type=float, default=1.5, help="Vertical space between ranks (DOT)")
 @click.option("--nodesep", type=float, default=0.6, help="Horizontal space between nodes (DOT)")
 def main(
-    chart_path: Path,
+    chart_ref: str,
+    chart_version: str | None,
+    plain_http: bool,
     values_file: Path | None,
     output_format: str,
     output_path: Path | None,
@@ -67,9 +78,57 @@ def main(
 ) -> None:
     """Helm chart dependency graph analyser.
 
-    Builds the dependency graph for the chart at CHART_PATH, resolves the
-    tree recursively and evaluates conditions against provided values.
+    Builds the dependency graph for the chart at CHART_REF (a local directory
+    or an oci:// reference), resolves the tree recursively and evaluates
+    conditions against provided values.
+
+    OCI charts are pulled with `helm pull` (use `helm registry login` first
+    for private registries).
     """
+    with contextlib.ExitStack() as stack:
+        if is_oci_ref(chart_ref):
+            tmp = stack.enter_context(tempfile.TemporaryDirectory(prefix="helm-depgraph-oci-"))
+            try:
+                chart_path = pull_oci_chart(
+                    chart_ref, Path(tmp), chart_version, helm_bin, plain_http
+                )
+            except ChartPullError as e:
+                raise click.ClickException(str(e)) from e
+        else:
+            chart_path = Path(chart_ref)
+            if not chart_path.exists():
+                raise click.BadParameter(
+                    f"Path '{chart_ref}' does not exist.", param_hint="CHART_REF"
+                )
+            if chart_version:
+                raise click.UsageError("--chart-version only applies to oci:// references")
+        # Output must be produced before the temp dir (OCI pull) is cleaned up.
+        _run(
+            chart_path,
+            values_file,
+            output_format,
+            output_path,
+            duplicates,
+            hide_libraries,
+            helm_bin,
+            use_helm_show,
+            ranksep,
+            nodesep,
+        )
+
+
+def _run(
+    chart_path: Path,
+    values_file: Path | None,
+    output_format: str,
+    output_path: Path | None,
+    duplicates: bool,
+    hide_libraries: bool,
+    helm_bin: str,
+    use_helm_show: bool,
+    ranksep: float,
+    nodesep: float,
+) -> None:
     # Build graph
     if use_helm_show:
         graph = build_graph_from_helm_show(str(chart_path), helm_bin=helm_bin)

@@ -73,6 +73,46 @@ def _run_helm(args: list[str], helm_bin: str = "helm") -> str:
     return result.stdout
 
 
+def is_oci_ref(ref: str) -> bool:
+    """True if ``ref`` is an OCI chart reference (``oci://...``)."""
+    return ref.startswith("oci://")
+
+
+def pull_oci_chart(
+    ref: str,
+    dest_dir: Path,
+    version: str | None = None,
+    helm_bin: str = "helm",
+    plain_http: bool = False,
+) -> Path:
+    """Pull an OCI chart with ``helm pull --untar`` and return the chart directory.
+
+    Authentication is whatever ``helm registry login`` has already set up.
+
+    Raises:
+        ChartPullError: If helm is missing, the pull fails, or no chart is produced.
+    """
+    args = ["pull", ref, "--untar", "--untardir", str(dest_dir)]
+    if version:
+        args.extend(["--version", version])
+    if plain_http:
+        args.append("--plain-http")
+    try:
+        _run_helm(args, helm_bin=helm_bin)
+    except FileNotFoundError as e:
+        raise ChartPullError(f"helm binary not found: {helm_bin}") from e
+    except subprocess.CalledProcessError as e:
+        raise ChartPullError(f"helm pull failed (exit {e.returncode}):\n{e.stderr.strip()}") from e
+    dirs = [d for d in dest_dir.iterdir() if d.is_dir()]
+    if len(dirs) != 1:
+        raise ChartPullError(f"Expected one chart directory after pulling {ref}, found {len(dirs)}")
+    return dirs[0]
+
+
+class ChartPullError(Exception):
+    """Raised when a chart cannot be pulled from a registry."""
+
+
 def _parse_chart_yaml(path: Path) -> dict[str, Any]:
     """Parse a Chart.yaml file."""
     with open(path) as f:

@@ -8,11 +8,14 @@ from click.testing import CliRunner
 
 from helm_depgraph.cli import main
 from helm_depgraph.graph import (
+    ChartPullError,
     ComputedValuesError,
     DependencyGraph,
     Occurrence,
     _parse_computed_values,
     _parse_dependency,
+    is_oci_ref,
+    pull_oci_chart,
 )
 
 
@@ -552,3 +555,39 @@ class TestGetComputedValues:
     def test_cli_rejects_legacy_build_subcommand(self) -> None:
         result = CliRunner().invoke(main, ["build", str(self.FIXTURE)])
         assert result.exit_code == 2
+
+
+class TestOciSupport:
+    def _fake_helm(self, tmp_path: Path, body: str) -> str:
+        script = tmp_path / "fake-helm"
+        script.write_text(f"#!/bin/sh\n{body}\n")
+        script.chmod(0o755)
+        return str(script)
+
+    def test_is_oci_ref(self) -> None:
+        assert is_oci_ref("oci://registry.example.com/charts/app")
+        assert not is_oci_ref("./charts/app")
+
+    def test_pull_passes_version_and_plain_http(self, tmp_path: Path) -> None:
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        argv_file = tmp_path / "argv"
+        helm = self._fake_helm(tmp_path, f'echo "$@" > {argv_file}\nmkdir -p "$5/app"')
+        chart = pull_oci_chart(
+            "oci://r/charts/app", dest, version="1.2.3", helm_bin=helm, plain_http=True
+        )
+        assert chart == dest / "app"
+        argv = argv_file.read_text().split()
+        assert argv[:2] == ["pull", "oci://r/charts/app"]
+        assert "--version" in argv and "1.2.3" in argv
+        assert "--plain-http" in argv
+
+    def test_pull_failure_raises(self, tmp_path: Path) -> None:
+        helm = self._fake_helm(tmp_path, "echo boom >&2; exit 1")
+        with pytest.raises(ChartPullError, match="boom"):
+            pull_oci_chart("oci://r/x", tmp_path, helm_bin=helm)
+
+    def test_cli_rejects_chart_version_for_local_path(self) -> None:
+        result = CliRunner().invoke(main, [".", "--chart-version", "1"])
+        assert result.exit_code != 0
+        assert "oci://" in result.output
