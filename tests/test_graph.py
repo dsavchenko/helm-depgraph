@@ -14,6 +14,7 @@ from helm_depgraph.graph import (
     Occurrence,
     _parse_computed_values,
     _parse_dependency,
+    get_computed_values,
     is_oci_ref,
     pull_oci_chart,
 )
@@ -591,3 +592,18 @@ class TestOciSupport:
         result = CliRunner().invoke(main, [".", "--chart-version", "1"])
         assert result.exit_code != 0
         assert "oci://" in result.output
+
+
+def test_values_from_fifo_via_stdin(tmp_path: Path) -> None:
+    """Values from a pipe (e.g. `<(yq ...)`) must reach helm, which can't inherit the fd."""
+    import os
+    import threading
+
+    fifo = tmp_path / "values.fifo"
+    os.mkfifo(fifo)
+    threading.Thread(
+        target=lambda: fifo.write_text("grandparent:\n  enabled: false\n"), daemon=True
+    ).start()
+    fixture = Path(__file__).parent / "fixtures" / "charts" / "test-values-analysis"
+    computed = get_computed_values(fixture, fifo)
+    assert computed["grandparent"]["enabled"] is False

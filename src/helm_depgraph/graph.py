@@ -396,8 +396,13 @@ def get_computed_values(
         "helm-depgraph-tmp",
         str(chart_path),
     ]
+    # Read the values here and feed them to helm on stdin (`-f -`): this also
+    # works for non-regular files such as process substitution (`<(yq ...)`),
+    # whose /dev/fd/N is closed in the child process.
+    values_text: str | None = None
     if values_file is not None:
-        args.extend(["-f", str(values_file)])
+        values_text = Path(values_file).read_text()
+        args.extend(["-f", "-"])
 
     try:
         result = subprocess.run(
@@ -405,6 +410,7 @@ def get_computed_values(
             capture_output=True,
             text=True,
             check=True,
+            input=values_text,
         )
     except FileNotFoundError as e:
         raise ComputedValuesError(f"helm binary not found: {helm_bin}") from e
